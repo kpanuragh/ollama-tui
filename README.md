@@ -2,6 +2,8 @@
 
 Ollama-Chat is a Terminal User Interface (TUI) chat system built with Rust, powered by Ollama for AI chat models.
 
+![Screenshot](https://raw.githubusercontent.com/kpanuragh/ollama-chat/main/assets/screenshot.png)
+
 ## Features
 
 - **Basic Authentication** for Ollama server.
@@ -110,6 +112,7 @@ ollama-chat
 - **Press `c`** to move to chat mode.
 - **Press `m`** for model selection mode.
 - **Press `Escape`** to go back to control mode.
+- **Press `q`** to quit the chat system in Control Mode.
 
 ## License
 
