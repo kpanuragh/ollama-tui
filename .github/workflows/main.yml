@@ -1,47 +1,29 @@
-name: Release
+
+name: Release on Tag
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"  # Triggers only when a version tag (vX.X.X) is pushed
 
 jobs:
-  build:
-    name: Build and Release
+  release:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Rust
-      uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Build for Linux
-      run: |
-        rustup target add x86_64-unknown-linux-gnu
-        cargo build --release --target x86_64-unknown-linux-gnu
-        tar -czvf my_binary-x86_64-linux.tar.gz -C target/x86_64-unknown-linux-gnu/release my_binary
+      - name: Build Project
+        run: cargo build --release
 
-    - name: Build for MacOS
-      run: |
-        rustup target add x86_64-apple-darwin
-        cargo build --release --target x86_64-apple-darwin
-        tar -czvf my_binary-x86_64-macos.tar.gz -C target/x86_64-apple-darwin/release my_binary
-
-    - name: Build for Windows
-      run: |
-        rustup target add x86_64-pc-windows-gnu
-        cargo build --release --target x86_64-pc-windows-gnu
-        zip -j my_binary-x86_64-windows.zip target/x86_64-pc-windows-gnu/release/my_binary.exe
-
-    - name: Upload Release Assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          my_binary-x86_64-linux.tar.gz
-          my_binary-x86_64-macos.tar.gz
-          my_binary-x86_64-windows.zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}  # Uses the pushed tag
+          files: target/release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
