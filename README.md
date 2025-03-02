@@ -105,6 +105,12 @@ ollama-chat
 
 > No `--help` or additional CLI commands – everything is handled inside the TUI.
 
+## Controls
+
+- **Press `c`** to move to chat mode.
+- **Press `m`** for model selection mode.
+- **Press `Escape`** to go back to control mode.
+
 ## License
 
 This project is licensed under the **MIT License**.
