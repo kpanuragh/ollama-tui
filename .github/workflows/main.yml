@@ -1,0 +1,2 @@
+- name: Release Rust Project Binaries as GitHub Releases
+  uses: houseabsolute/actions-rust-release@v0.0.6
