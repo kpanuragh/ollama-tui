@@ -1,0 +1,16 @@
+app: Olama-Chat
+version: 1.0.0
+arch: x86_64
+
+runtime:
+  env:
+    PATH: "$APPDIR/usr/bin:$PATH"
+
+files:
+  usr/bin/ollama-chat: /usr/bin/ollama-chat
+
+AppImage:
+  arch: x86_64
+  update-information: None
+  sign-key: None
+
