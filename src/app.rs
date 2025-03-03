@@ -25,7 +25,7 @@ pub struct Config {
     pub password: String,
 }
 
-/// Application state (wrapped in Arc<Mutex<T>> for shared access)
+/// Application state
 #[derive(Debug)]
 pub struct App {
     /// Is the application running?
