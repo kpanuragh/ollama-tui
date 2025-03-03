@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["fetch_models","handle_key_events","send_message_to_ollama"]};

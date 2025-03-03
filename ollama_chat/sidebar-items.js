@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["main","prompt"],"mod":["app","event","handler","tui","ui"]};
