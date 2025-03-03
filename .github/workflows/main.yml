@@ -3,8 +3,8 @@ name: Release on Tag
 
 on:
   push:
-    tags:
-      - "v*"  # Triggers only when a version tag (vX.X.X) is pushed
+    branches:
+      - "main"  # Triggers only when a version tag (vX.X.X) is pushed
 
 jobs:
   release:
@@ -45,7 +45,7 @@ jobs:
           override: true
 
       - name: Build documentation
-        run: RUSTDOCFLAGS="--enable-index-page  --no-deps -Zunstable-options" cargo +nightly doc
+        run: RUSTDOCFLAGS="--enable-index-page --no-deps -Zunstable-options" cargo +nightly doc
         # uses: actions-rs/cargo@v1
         # with:
         #   command: doc
