@@ -45,7 +45,7 @@ jobs:
           override: true
 
       - name: Build documentation
-        run: RUSTDOCFLAGS="--enable-index-page -Zunstable-options" cargo +nightly doc
+        run: RUSTDOCFLAGS="--enable-index-page  --no-deps -Zunstable-options" cargo +nightly doc
         # uses: actions-rs/cargo@v1
         # with:
         #   command: doc
