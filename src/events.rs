@@ -1,4 +1,3 @@
-
 use crate::{
     app::{AppMode, AppState},
     models, ollama,
@@ -26,8 +25,26 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                 app.new_session().ok();
                 return false;
             }
-            KeyCode::Char('m') => {
+            KeyCode::Char('l') => {
                 app.mode = AppMode::ModelSelection;
+                if !app.is_fetching_models {
+                    app.is_fetching_models = true;
+                    let models_tx = tx.clone();
+                    let http_client_clone = app.http_client.clone();
+                    let base_url_clone = app.ollama_base_url.clone();
+                    let auth_config_clone = app.config.auth_method.clone();
+                    let auth_enabled_clone = app.config.auth_enabled;
+                    tokio::spawn(async move {
+                        let result = ollama::fetch_models(
+                            &http_client_clone,
+                            &base_url_clone,
+                            auth_enabled_clone,
+                            auth_config_clone.as_ref(),
+                        )
+                        .await;
+                        models_tx.send(AppEvent::Models(result)).await.ok();
+                    });
+                }
                 return false;
             }
             _ => {}
@@ -82,7 +99,9 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
             _ => {}
         },
         AppMode::ModelSelection => match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => app.mode = AppMode::Normal,
+            KeyCode::Char('q') | KeyCode::Esc => {
+                app.mode = AppMode::Normal;
+            }
             KeyCode::Up => app.previous_model(),
             KeyCode::Down => app.next_model(),
             KeyCode::Enter => {

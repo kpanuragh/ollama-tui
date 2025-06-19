@@ -3,6 +3,7 @@
 
 A feature-rich, terminal-based user interface for interacting with [Ollama](https://ollama.com/ "null"), written in Rust. Enjoy a polished and responsive chat experience directly from your command line.
 
+![Screenshot](https://raw.githubusercontent.com/kpanuragh/ollama-chat/main/ollama.png)
 
 ## ✨ Features
 

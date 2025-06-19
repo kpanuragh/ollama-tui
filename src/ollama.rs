@@ -1,4 +1,3 @@
-
 use crate::{events::AppEvent, models};
 use anyhow::Result;
 use futures_util::StreamExt;

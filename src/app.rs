@@ -1,4 +1,3 @@
-
 use crate::{config, db, models};
 use anyhow::{anyhow, Result};
 use ratatui::widgets::ListState;
@@ -23,6 +22,7 @@ pub struct AppState {
     pub available_models: Vec<String>,
     pub model_list_state: ListState,
     pub is_loading: bool,
+    pub is_fetching_models: bool,
     pub scroll_offset: u16,
     pub http_client: Client,
     pub db_conn: Connection,
@@ -90,6 +90,7 @@ impl AppState {
             available_models: Vec::new(),
             model_list_state: ListState::default(),
             is_loading: false,
+            is_fetching_models: false,
             scroll_offset: 0,
             http_client: client,
             db_conn: conn,

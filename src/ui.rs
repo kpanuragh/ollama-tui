@@ -101,14 +101,26 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
 fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     let popup_area = centered_rect(60, 50, f.size());
     let block = Block::default()
-        .title("Select a Model (Enter to confirm, Esc to cancel)")
+        .title("Select a Model (Enter to confirm, Esc/q to cancel)")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
-    if app.available_models.is_empty() {
+    if app.is_fetching_models {
         let text = Paragraph::new("Fetching models...")
             .alignment(Alignment::Center)
             .block(block);
+        f.render_widget(Clear, popup_area);
+        f.render_widget(text, popup_area);
+        return;
+    }
+
+    if app.available_models.is_empty() {
+        let text = Paragraph::new(
+            "No models found. Ensure Ollama is running and models are pulled. Press 'q' to close.",
+        )
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+        .block(block);
         f.render_widget(Clear, popup_area);
         f.render_widget(text, popup_area);
         return;

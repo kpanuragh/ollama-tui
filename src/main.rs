@@ -59,6 +59,7 @@ async fn main() -> Result<()> {
     let base_url_clone = app_state.ollama_base_url.clone();
     let auth_config_clone = app_state.config.auth_method.clone();
     let auth_enabled_clone = app_state.config.auth_enabled;
+    app_state.is_fetching_models = true; // Set state before spawning the task
 
     tokio::spawn(async move {
         let result = ollama::fetch_models(
@@ -117,6 +118,7 @@ async fn main() -> Result<()> {
                 }
             }
             Some(events::AppEvent::Models(Ok(models))) => {
+                app_state.is_fetching_models = false;
                 app_state.available_models = models;
                 if !app_state.available_models.is_empty()
                     && app_state.current_model == "No model selected"
@@ -126,6 +128,8 @@ async fn main() -> Result<()> {
                 }
             }
             Some(events::AppEvent::Models(Err(e))) => {
+                app_state.is_fetching_models = false;
+                app_state.available_models.clear(); // Clear any stale models
                 app_state.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: format!("Error fetching models: {}. Is Ollama running?", e),
