@@ -23,7 +23,7 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
         
     -   Clear the history of the current session (`Ctrl+D`).
         
--   **Dynamic Model Switching**: Pop-up interface (`Ctrl+M`) to switch between any of your available Ollama models.
+-   **Dynamic Model Switching**: Pop-up interface (`Ctrl+L`) to switch between any of your available Ollama models.
     
 -   **Secure & Configurable**:
     
@@ -158,7 +158,7 @@ Global
 
 Normal Mode
 
-`Ctrl` + `M`
+`Ctrl` + `L`
 
 Open the **M**odel selection popup
 
