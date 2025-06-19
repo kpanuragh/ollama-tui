@@ -1,0 +1,106 @@
+name: Build and Release
+
+# This workflow runs when a new tag starting with 'v' is pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  # The 'build' job compiles the application for different operating systems.
+  build:
+    name: Build for ${{ matrix.os_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Define the different build targets
+        include:
+          - os: ubuntu-latest
+            os_name: Linux
+            artifact_name: ollama-chat-linux-amd64
+            asset_name: ollama-chat-linux-amd64.tar.gz
+          - os: macos-latest
+            os_name: macOS
+            artifact_name: ollama-chat-macos-amd64
+            asset_name: ollama-chat-macos-amd64.zip
+          - os: windows-latest
+            os_name: Windows
+            artifact_name: ollama-chat-windows-amd64
+            asset_name: ollama-chat-windows-amd64.zip
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # 1. Check-out your repository under $GITHUB_WORKSPACE
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Cache dependencies to speed up future builds
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      # 3. Install the Rust toolchain
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 4. Build the project in release mode
+      - name: Build binary
+        run: cargo build --release --verbose
+
+      # 5. Package the binary into an archive
+      - name: Package for Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: tar -czvf ${{ matrix.asset_name }} -C target/release ollama-chat
+
+      - name: Package for macOS
+        if: matrix.os == 'macos-latest'
+        run: zip -j ${{ matrix.asset_name }} target/release/ollama-chat
+
+      - name: Package for Windows
+        if: matrix.os == 'windows-latest'
+        run: Compress-Archive -Path target/release/ollama-chat.exe -DestinationPath ${{ matrix.asset_name }}
+
+      # 6. Upload the packaged binary as a build artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
+
+  # The 'release' job creates a GitHub Release and uploads the build assets.
+  release:
+    name: Create GitHub Release
+    # This job depends on the 'build' job completing successfully for all matrix targets
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # This permission is required to create a release and upload assets.
+      contents: write
+
+    steps:
+      # 1. Download all build artifacts from the 'build' job
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      # 2. Create the GitHub Release and upload the assets
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          # The files to upload as release assets.
+          # This pattern will grab the packaged file from each artifact's subdirectory.
+          files: artifacts/*/*
+          # The body of the release. You can use this to write release notes.
+          body: "New release of Ollama Chat. Download the binary for your operating system below."
+          # Use the tag name for the release title (e.g., "Release v1.0.0")
+          name: Release ${{ github.ref_name }}
+
