@@ -74,7 +74,7 @@ jobs:
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
           elif [ "${{ matrix.target }}" = "i686-unknown-linux-gnu" ]; then
-            sudo apt-get update && sudo apt-get install -y gcc-multilib
+            sudo apt-get update && sudo apt-get install -y gcc-multilib libssl-dev:i386
           fi
 
       # 5. Build the project in release mode
@@ -93,8 +93,8 @@ jobs:
       - name: Package Release
         shell: bash
         run: |
-          BINARY_NAME="ollama-chat"
-          ASSET_FILENAME="ollama-chat-${{ matrix.asset_suffix }}"
+          BINARY_NAME="ollama-tui"
+          ASSET_FILENAME="ollama-tui-${{ matrix.asset_suffix }}"
           
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             BINARY_NAME+=".exe"
@@ -110,7 +110,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ollama-chat-builds
+          name: ollama-tui-builds
           path: ${{ env.ASSET_PATH }}
 
   # The 'release' job creates a GitHub Release and uploads all the built assets.
@@ -128,7 +128,7 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ollama-chat-builds
+          name: ollama-tui-builds
           path: dist/
 
       # 2. Create the GitHub Release and upload the assets
@@ -139,7 +139,7 @@ jobs:
           # This pattern will grab all the packaged files from the dist directory.
           files: dist/*
           # The body of the release. You can use this to write release notes.
-          body: "New release of Ollama Chat. Download the binary for your operating system and architecture below."
+          body: "New release of Ollama TUI. Download the binary for your operating system and architecture below."
           # Use the tag name for the release title (e.g., "Release v1.0.0")
           name: Release ${{ github.ref_name }}
 
