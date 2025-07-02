@@ -43,7 +43,9 @@
 
           src = ./.;
 
-          cargoHash = "sha256-0000000000000000000000000000000000000000000=";
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
 
           inherit nativeBuildInputs buildInputs;
 
