@@ -10,6 +10,7 @@ pub enum AppMode {
     Normal,
     ModelSelection,
     SessionSelection,
+    Agent,  // New agent mode
 }
 
 pub struct AppState {
@@ -24,10 +25,16 @@ pub struct AppState {
     pub is_loading: bool,
     pub is_fetching_models: bool,
     pub scroll_offset: u16,
+    pub auto_scroll: bool,  // Add auto-scroll flag
     pub http_client: Client,
     pub db_conn: Connection,
     pub ollama_base_url: String,
     pub config: models::Config,
+    // Agent mode fields
+    pub agent_mode: bool,
+    pub pending_commands: Vec<models::AgentCommand>,
+    pub command_approval_index: Option<usize>,
+    pub agent_context: String,
 }
 
 impl AppState {
@@ -92,10 +99,16 @@ impl AppState {
             is_loading: false,
             is_fetching_models: false,
             scroll_offset: 0,
+            auto_scroll: true, // Initialize auto-scroll to true
             http_client: client,
             db_conn: conn,
             ollama_base_url,
             config,
+            // Initialize agent fields
+            agent_mode: false,
+            pending_commands: Vec::new(),
+            command_approval_index: None,
+            agent_context: String::new(),
         })
     }
 
@@ -196,6 +209,15 @@ impl AppState {
         }
         self.mode = AppMode::Normal;
         Ok(())
+    }
+
+    pub fn auto_scroll_to_bottom(&mut self) {
+        if !self.auto_scroll {
+            return;
+        }
+        
+        // For auto-scroll, always set offset to 0 which shows the bottom in ratatui
+        self.scroll_offset = 0;
     }
 }
 
