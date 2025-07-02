@@ -31,6 +31,18 @@ pub enum WorkflowTrigger {
 }
 
 impl Workflow {
+    /// Creates a new workflow with the specified name and description, initializing empty steps, triggers, and variables.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let workflow = Workflow::new("build".to_string(), "Builds the project".to_string());
+    /// assert_eq!(workflow.name, "build");
+    /// assert_eq!(workflow.description, "Builds the project");
+    /// assert!(workflow.steps.is_empty());
+    /// assert!(workflow.triggers.is_empty());
+    /// assert!(workflow.variables.is_empty());
+    /// ```
     pub fn new(name: String, description: String) -> Self {
         Self {
             name,
@@ -41,14 +53,53 @@ impl Workflow {
         }
     }
     
+    /// Adds a step to the workflow's sequence of steps.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut workflow = Workflow::new("example".to_string(), "Demo workflow".to_string());
+    /// let step = WorkflowStep {
+    ///     name: "build".to_string(),
+    ///     command: "cargo build".to_string(),
+    ///     condition: None,
+    ///     retry_count: 0,
+    ///     timeout_secs: 60,
+    ///     continue_on_error: false,
+    /// };
+    /// workflow.add_step(step);
+    /// assert_eq!(workflow.steps.len(), 1);
+    /// ```
     pub fn add_step(&mut self, step: WorkflowStep) {
         self.steps.push(step);
     }
     
+    /// Adds a variable to the workflow's variable map, associating the given key with the specified value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut workflow = Workflow::new("example".to_string(), "desc".to_string());
+    /// workflow.add_variable("ENV".to_string(), "production".to_string());
+    /// assert_eq!(workflow.variables.get("ENV"), Some(&"production".to_string()));
+    /// ```
     pub fn add_variable(&mut self, key: String, value: String) {
         self.variables.insert(key, value);
     }
     
+    /// Replaces variable placeholders in a command string with their corresponding values from the workflow's variables map.
+    ///
+    /// Variable placeholders are expected in the format `${VAR_NAME}` and are substituted with the value associated with `VAR_NAME`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut workflow = Workflow::new("example".to_string(), "desc".to_string());
+    /// workflow.add_variable("USER".to_string(), "alice".to_string());
+    /// let cmd = "echo Hello, ${USER}!";
+    /// let substituted = workflow.substitute_variables(cmd);
+    /// assert_eq!(substituted, "echo Hello, alice!");
+    /// ```
     pub fn substitute_variables(&self, command: &str) -> String {
         let mut result = command.to_string();
         for (key, value) in &self.variables {
@@ -63,20 +114,58 @@ pub struct WorkflowManager {
 }
 
 impl WorkflowManager {
+    /// Creates a new, empty `WorkflowManager` with no workflows.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let manager = WorkflowManager::new();
+    /// assert_eq!(manager.list_workflows().len(), 0);
+    /// ```
     pub fn new() -> Self {
         Self {
             workflows: HashMap::new(),
         }
     }
     
+    /// Adds a workflow to the manager, keyed by its name.
+    ///
+    /// If a workflow with the same name already exists, it will be replaced.
     pub fn add_workflow(&mut self, workflow: Workflow) {
         self.workflows.insert(workflow.name.clone(), workflow);
     }
     
+    /// Retrieves a reference to a workflow by its name, if it exists.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut manager = WorkflowManager::new();
+    /// let workflow = Workflow::new("build".to_string(), "Build project".to_string());
+    /// manager.add_workflow(workflow);
+    /// let retrieved = manager.get_workflow("build");
+    /// assert!(retrieved.is_some());
+    /// ```
     pub fn get_workflow(&self, name: &str) -> Option<&Workflow> {
         self.workflows.get(name)
     }
     
+    /// Adds predefined common workflows to the manager.
+    ///
+    /// This method creates and registers two standard workflows:
+    /// - "rust-ci": A Rust continuous integration pipeline with steps for formatting, linting, building, and testing.
+    /// - "project-backup": A backup workflow that creates a timestamped backup directory and copies source and configuration files, using variable substitution for directory names and supporting conditional and error-tolerant steps.
+    ///
+    /// These workflows are added to the manager and can be retrieved or executed later.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut manager = WorkflowManager::new();
+    /// manager.create_common_workflows();
+    /// assert!(manager.get_workflow("rust-ci").is_some());
+    /// assert!(manager.get_workflow("project-backup").is_some());
+    /// ```
     pub fn create_common_workflows(&mut self) {
         // Rust development workflow
         let mut rust_ci = Workflow::new(
@@ -151,6 +240,21 @@ impl WorkflowManager {
         self.add_workflow(backup);
     }
     
+    /// Generates a list of agent commands for a workflow by name, substituting variables and assessing risk for each step.
+    ///
+    /// Returns an error if the workflow does not exist. Each `AgentCommand` contains the substituted command, step description, risk level, and default execution metadata.
+    ///
+    /// # Returns
+    /// A vector of `AgentCommand` objects representing the workflow steps with variables substituted.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let manager = WorkflowManager::new();
+    /// // ... add workflows ...
+    /// let commands = tokio_test::block_on(manager.execute_workflow("rust-ci")).unwrap();
+    /// assert!(!commands.is_empty());
+    /// ```
     pub async fn execute_workflow(&self, name: &str) -> Result<Vec<AgentCommand>> {
         let workflow = self.workflows.get(name)
             .ok_or_else(|| anyhow::anyhow!("Workflow not found: {}", name))?;
@@ -174,6 +278,16 @@ impl WorkflowManager {
         Ok(commands)
     }
     
+    /// Returns a vector of references to all workflows managed by this instance.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut manager = WorkflowManager::new();
+    /// manager.create_common_workflows();
+    /// let workflows = manager.list_workflows();
+    /// assert!(!workflows.is_empty());
+    /// ```
     pub fn list_workflows(&self) -> Vec<&Workflow> {
         self.workflows.values().collect()
     }

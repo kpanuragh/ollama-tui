@@ -15,6 +15,18 @@ pub enum AppEvent {
     CommandExecuted(usize, Result<String, String>),
 }
 
+/// Handles a keyboard event, updating the application state and dispatching events as needed.
+///
+/// Processes the given `KeyEvent` according to the current application mode, modifying the `AppState` and sending relevant `AppEvent`s through the provided channel. Supports normal operation, model selection, session selection, and agent command approval workflows. Returns `true` only if the event signals application exit (e.g., `Ctrl+C`); otherwise, returns `false`.
+///
+/// # Examples
+///
+/// ```
+/// let should_exit = handle_key_event(key_event, &mut app_state, tx).await;
+/// if should_exit {
+///     // Perform application shutdown
+/// }
+/// ```
 pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
     if key.modifiers == KeyModifiers::CONTROL {
         match key.code {

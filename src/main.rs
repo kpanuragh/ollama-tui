@@ -32,7 +32,13 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result
     Ok(())
 }
 
-#[tokio::main]
+/// Runs the main asynchronous event loop for the terminal-based application.
+///
+/// Initializes the terminal UI, loads configuration and application state, and sets up asynchronous event handlers for terminal input and model fetching. Processes events such as user input, streamed assistant responses, model updates, agent command parsing and execution, and updates the UI and persistent storage accordingly. Cleans up and restores the terminal state on exit.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the application exits successfully, or an error if initialization or terminal restoration fails.
 async fn main() -> Result<()> {
     let mut terminal = setup_terminal()?;
     let config = config::load_or_create()?;

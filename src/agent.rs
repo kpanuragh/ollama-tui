@@ -62,6 +62,16 @@ pub enum PermissionLevel {
 }
 
 impl CommandHistory {
+    /// Creates a new, empty `CommandHistory` instance with no commands, favorites, or usage statistics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let history = CommandHistory::new();
+    /// assert!(history.commands.is_empty());
+    /// assert!(history.favorites.is_empty());
+    /// assert!(history.usage_stats.is_empty());
+    /// ```
     pub fn new() -> Self {
         Self {
             commands: Vec::new(),
@@ -70,6 +80,9 @@ impl CommandHistory {
         }
     }
     
+    /// Adds a new command entry to the history, recording its outcome, execution time, and working directory.
+    ///
+    /// Maintains usage statistics for each command and ensures the history contains only the most recent 1000 entries.
     pub fn add_entry(&mut self, command: String, success: bool, execution_time_ms: u64) {
         let entry = HistoryEntry {
             command: command.clone(),
@@ -90,12 +103,37 @@ impl CommandHistory {
         }
     }
     
+    /// Adds a command to the favorites list if it is not already present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut history = CommandHistory::new();
+    /// history.add_favorite("ls -la".to_string());
+    /// assert!(history.favorites.contains(&"ls -la".to_string()));
+    /// ```
     pub fn add_favorite(&mut self, command: String) {
         if !self.favorites.contains(&command) {
             self.favorites.push(command);
         }
     }
     
+    /// Returns the most frequently used commands up to the specified limit, sorted by usage count in descending order.
+    ///
+    /// # Parameters
+    /// - `limit`: The maximum number of popular commands to return.
+    ///
+    /// # Returns
+    /// A vector of tuples containing the command string and its usage count, ordered from most to least used.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let history = CommandHistory::new();
+    /// // ... add entries ...
+    /// let popular = history.get_popular_commands(5);
+    /// assert!(popular.len() <= 5);
+    /// ```
     pub fn get_popular_commands(&self, limit: usize) -> Vec<(String, u32)> {
         let mut commands: Vec<_> = self.usage_stats.iter().collect();
         commands.sort_by(|a, b| b.1.cmp(a.1));
@@ -107,7 +145,23 @@ impl CommandHistory {
 }
 
 impl Agent {
-    /// Parse commands from LLM response
+    /// Extracts shell commands from a language model response.
+    ///
+    /// Searches for commands within fenced code blocks labeled as bash/sh/shell and for inline commands prefixed with `$`.
+    /// For each detected command, generates a risk assessment and a human-readable description.
+    ///
+    /// # Returns
+    /// A vector of `AgentCommand` instances representing the parsed commands, each with associated metadata.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let response = "Try running:\n```bash\nls -la\n```\nOr use `$ git status`.";
+    /// let commands = Agent::parse_commands_from_response(response);
+    /// assert_eq!(commands.len(), 2);
+    /// assert_eq!(commands[0].command, "ls -la");
+    /// assert_eq!(commands[1].command, "git status");
+    /// ```
     pub fn parse_commands_from_response(response: &str) -> Vec<AgentCommand> {
         let mut commands = Vec::new();
         
@@ -159,7 +213,20 @@ impl Agent {
         commands
     }
     
-    /// Assess the risk level of a command
+    /// Determines the risk level of a shell command based on its content.
+    ///
+    /// Returns `RiskLevel::Critical` for dangerous commands, `High` for system modifications,
+    /// `Moderate` for file modifications, and `Safe` for read-only operations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let risk = Agent::assess_risk_level("rm -rf /tmp/test");
+    /// assert_eq!(risk, RiskLevel::Critical);
+    ///
+    /// let risk = Agent::assess_risk_level("ls -la");
+    /// assert_eq!(risk, RiskLevel::Safe);
+    /// ```
     pub fn assess_risk_level(command: &str) -> RiskLevel {
         let command_lower = command.to_lowercase();
         let parts: Vec<&str> = command.split_whitespace().collect();
@@ -183,6 +250,16 @@ impl Agent {
         RiskLevel::Safe
     }
     
+    /// Determines if a shell command matches known critical or destructive patterns.
+    ///
+    /// Returns `true` if the command contains substrings associated with highly dangerous operations such as disk formatting, partitioning, or recursive file deletion; otherwise, returns `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// assert!(is_critical_command("rm -rf /"));
+    /// assert!(!is_critical_command("ls -la"));
+    /// ```
     fn is_critical_command(command: &str) -> bool {
         let critical_patterns = [
             "rm -rf",
@@ -202,6 +279,22 @@ impl Agent {
         critical_patterns.iter().any(|&pattern| command.contains(pattern))
     }
     
+    /// Determines if a command is considered high risk based on its content.
+    ///
+    /// High-risk commands include those that start with `sudo`, perform network operations piped to a shell (such as `curl | sh` or `wget | sh`), or involve system service and user management operations (e.g., `systemctl`, `service`, `iptables`, `ufw`, `chmod +x`, `chown`, `passwd`, `useradd`, `userdel`, `groupadd`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let risky = is_high_risk_command("sudo apt update", &["sudo", "apt", "update"]);
+    /// assert!(risky);
+    ///
+    /// let risky = is_high_risk_command("curl https://example.com | sh", &["curl", "https://example.com", "|", "sh"]);
+    /// assert!(risky);
+    ///
+    /// let not_risky = is_high_risk_command("ls -la", &["ls", "-la"]);
+    /// assert!(!not_risky);
+    /// ```
     fn is_high_risk_command(command: &str, parts: &[&str]) -> bool {
         if parts.is_empty() {
             return false;
@@ -226,6 +319,20 @@ impl Agent {
         high_risk_commands.iter().any(|&cmd| command.contains(cmd))
     }
     
+    /// Determines if a command is considered moderate risk based on its type and usage.
+    ///
+    /// Returns `true` if the command matches common file operations or package installation commands,
+    /// or if it involves output redirection with such commands. Otherwise, returns `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let is_moderate = is_moderate_risk_command("cp file1 file2", &["cp", "file1", "file2"]);
+    /// assert!(is_moderate);
+    ///
+    /// let not_moderate = is_moderate_risk_command("ls -la", &["ls", "-la"]);
+    /// assert!(!not_moderate);
+    /// ```
     fn is_moderate_risk_command(command: &str, parts: &[&str]) -> bool {
         if parts.is_empty() {
             return false;
@@ -243,7 +350,22 @@ impl Agent {
         })
     }
     
-    /// Generate a human-readable description of what the command does
+    /// Generates a human-readable description of a shell command.
+    ///
+    /// Returns a brief summary of the command's purpose, including specific descriptions for common commands and subcommands. If the command is unrecognized, returns a generic description.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let desc = generate_description("git status");
+    /// assert_eq!(desc, "Show git repository status");
+    ///
+    /// let desc2 = generate_description("ls -la");
+    /// assert_eq!(desc2, "List directory contents");
+    ///
+    /// let desc3 = generate_description("unknowncmd arg");
+    /// assert_eq!(desc3, "Execute command: unknowncmd");
+    /// ```
     fn generate_description(command: &str) -> String {
         let cmd_parts: Vec<&str> = command.split_whitespace().collect();
         if cmd_parts.is_empty() {
@@ -298,7 +420,21 @@ impl Agent {
         }
     }
     
-    /// Execute a command with timeout and progress tracking
+    /// Executes a shell command asynchronously with a specified timeout.
+    ///
+    /// Runs the given command string, capturing its standard output and error, and returns a `CommandResult` containing execution details. If the command does not complete within the timeout, an error is returned.
+    ///
+    /// # Returns
+    /// - `Ok(CommandResult)` if the command executes within the timeout.
+    /// - `Err` if the command is empty, fails to execute, or times out.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let result = execute_command_with_timeout("echo hello", 5).await?;
+    /// assert!(result.success);
+    /// assert_eq!(result.stdout.trim(), "hello");
+    /// ```
     pub async fn execute_command_with_timeout(
         command: &str, 
         timeout_secs: u64
@@ -344,7 +480,16 @@ impl Agent {
         }
     }
     
-    /// Execute a command safely and return the output
+    /// Executes a shell command asynchronously with a 30-second timeout and returns its standard output if successful.
+    ///
+    /// Returns an error containing the standard error output if the command fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let output = Agent::execute_command("echo hello").await.unwrap();
+    /// assert_eq!(output.trim(), "hello");
+    /// ```
     pub async fn execute_command(command: &str) -> Result<String> {
         let result = Self::execute_command_with_timeout(command, 30).await?;
         
@@ -355,7 +500,22 @@ impl Agent {
         }
     }
     
-    /// Suggest commands based on user intent and context
+    /// Suggests relevant shell commands based on user intent and system context.
+    ///
+    /// Generates a list of command suggestions tailored to the user's intent keywords and the current project type, Git repository status, and common system tasks. Suggestions include project-specific build, test, install, and run commands, Git operations, system monitoring, and file search commands.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let context = SystemContext {
+    ///     project_type: ProjectType::Rust,
+    ///     is_git_repo: true,
+    ///     ..Default::default()
+    /// };
+    /// let suggestions = suggest_commands("build and test", &context);
+    /// assert!(suggestions.contains(&"cargo build".to_string()));
+    /// assert!(suggestions.contains(&"cargo test".to_string()));
+    /// ```
     pub fn suggest_commands(intent: &str, context: &SystemContext) -> Vec<String> {
         let intent_lower = intent.to_lowercase();
         let mut suggestions = Vec::new();
@@ -450,7 +610,21 @@ impl Agent {
         suggestions
     }
     
-    /// Generate smart completions for partial commands
+    /// Returns a list of command completions that start with the given partial input, tailored to the project type and Git repository status.
+    ///
+    /// Suggests common commands relevant to the detected project type (Rust, NodeJs, Python, or generic), and includes Git commands if the current directory is a Git repository.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let context = SystemContext {
+    ///     project_type: ProjectType::Rust,
+    ///     is_git_repo: true,
+    ///     ..Default::default()
+    /// };
+    /// let completions = complete_command("git ", &context);
+    /// assert!(completions.contains(&"git status".to_string()));
+    /// ```
     pub fn complete_command(partial: &str, context: &SystemContext) -> Vec<String> {
         let mut completions = Vec::new();
         
@@ -494,7 +668,17 @@ impl Agent {
         completions
     }
     
-    /// Enhanced error handling with recovery suggestions
+    /// Analyzes a command error and provides severity, category, and recovery suggestions.
+    ///
+    /// Examines the error message to determine its severity and category, and generates actionable suggestions for resolving the issue. Suggestions are tailored for common error types such as permission issues, missing commands, file not found, network problems, and disk space errors. Also indicates whether retrying the command is recommended.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let analysis = Agent::analyze_error("ls /root", "Permission denied");
+    /// assert_eq!(analysis.category, ErrorCategory::Permission);
+    /// assert!(analysis.suggestions.iter().any(|s| s.contains("sudo")));
+    /// ```
     pub fn analyze_error(command: &str, error: &str) -> ErrorAnalysis {
         let mut suggestions = Vec::new();
         let error_lower = error.to_lowercase();
@@ -556,6 +740,16 @@ impl Agent {
         }
     }
     
+    /// Categorizes an error message into a predefined error category based on its content.
+    ///
+    /// Returns an `ErrorCategory` variant such as Permission, NotFound, Network, Syntax, Resource, or Other, depending on keywords found in the error string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let category = categorize_error("permission denied");
+    /// assert_eq!(category, ErrorCategory::Permission);
+    /// ```
     fn categorize_error(error: &str) -> ErrorCategory {
         if error.contains("permission") {
             ErrorCategory::Permission
@@ -572,7 +766,17 @@ impl Agent {
         }
     }
     
-    /// Create a context-aware prompt for the agent
+    /// Generates a detailed, context-aware prompt for the agent to guide intelligent and safe shell command suggestions based on the user's request and current system state.
+    ///
+    /// The prompt includes information about the current directory, operating system, project type, Git repository status, and available tools. It outlines safety protocols and command strategies to ensure user safety and effective task completion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let prompt = Agent::create_agent_prompt("Set up the project and run tests", "");
+    /// assert!(prompt.contains("SYSTEM CONTEXT:"));
+    /// assert!(prompt.contains("USER REQUEST: Set up the project and run tests"));
+    /// ```
     pub fn create_agent_prompt(user_request: &str, context: &str) -> String {
         let system_context = Self::get_system_context();
         
@@ -631,7 +835,19 @@ Please analyze this request and provide a step-by-step approach with appropriate
         )
     }
     
-    /// Get system context for better command suggestions
+    /// Retrieves the current system context, including directory, project type, Git status, available tools, OS, and user permissions.
+    ///
+    /// This function gathers information about the environment to enable context-aware command suggestions and completions. It detects the current working directory, checks for the presence of a Git repository, determines the project type based on common project files, identifies available development tools, detects the operating system, and infers the user's permission level.
+    ///
+    /// # Returns
+    /// A `SystemContext` struct containing details about the current environment.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let context = Agent::get_system_context();
+    /// assert!(!context.current_dir.is_empty());
+    /// ```
     pub fn get_system_context() -> SystemContext {
         let current_dir = env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
@@ -678,6 +894,16 @@ Please analyze this request and provide a step-by-step approach with appropriate
         }
     }
     
+    /// Checks if a given tool is available in the system's PATH.
+    ///
+    /// Returns `true` if the tool is found, otherwise `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// assert_eq!(check_tool_available("ls"), true);
+    /// assert_eq!(check_tool_available("nonexistent_tool_xyz"), false);
+    /// ```
     fn check_tool_available(tool: &str) -> bool {
         std::process::Command::new("which")
             .arg(tool)
