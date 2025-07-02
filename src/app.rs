@@ -10,6 +10,7 @@ pub enum AppMode {
     Normal,
     ModelSelection,
     SessionSelection,
+    Agent,  // New agent mode
 }
 
 pub struct AppState {
@@ -28,6 +29,11 @@ pub struct AppState {
     pub db_conn: Connection,
     pub ollama_base_url: String,
     pub config: models::Config,
+    // Agent mode fields
+    pub agent_mode: bool,
+    pub pending_commands: Vec<models::AgentCommand>,
+    pub command_approval_index: Option<usize>,
+    pub agent_context: String,
 }
 
 impl AppState {
@@ -96,6 +102,11 @@ impl AppState {
             db_conn: conn,
             ollama_base_url,
             config,
+            // Initialize agent fields
+            agent_mode: false,
+            pending_commands: Vec::new(),
+            command_approval_index: None,
+            agent_context: String::new(),
         })
     }
 

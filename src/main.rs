@@ -1,4 +1,4 @@
-
+mod agent;
 mod app;
 mod config;
 mod db;
@@ -6,6 +6,7 @@ mod events;
 mod models;
 mod ollama;
 mod ui;
+mod workflow;
 
 use anyhow::Result;
 use app::AppState;
@@ -103,6 +104,19 @@ async fn main() -> Result<()> {
             }
             Some(events::AppEvent::OllamaDone) => {
                 app_state.is_loading = false;
+
+                // Parse commands if in agent mode
+                if app_state.agent_mode {
+                    if let Some(last_message) = app_state.current_messages().last() {
+                        if last_message.role == models::Role::Assistant {
+                            let commands = agent::Agent::parse_commands_from_response(&last_message.content);
+                            if !commands.is_empty() {
+                                tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
+                            }
+                        }
+                    }
+                }
+
                 let messages = app_state.current_messages();
                 if messages.len() >= 2 {
                     let user_msg = &messages[messages.len() - 2];
@@ -134,6 +148,35 @@ async fn main() -> Result<()> {
                     role: models::Role::Assistant,
                     content: format!("Error fetching models: {}. Is Ollama running?", e),
                 });
+            }
+            Some(events::AppEvent::AgentCommands(commands)) => {
+                app_state.pending_commands = commands;
+                if !app_state.pending_commands.is_empty() {
+                    app_state.command_approval_index = Some(0);
+                }
+            }
+            Some(events::AppEvent::CommandExecuted(index, result)) => {
+                if let Some(cmd) = app_state.pending_commands.get_mut(index) {
+                    cmd.executed = true;
+                    let cmd_command = cmd.command.clone();
+                    match result {
+                        Ok(output) => {
+                            cmd.output = Some(output.clone());
+                            // Add command output to chat
+                            app_state.current_messages_mut().push(models::Message {
+                                role: models::Role::Assistant,
+                                content: format!("Command executed successfully:\n```\n{}\n```\n\nOutput:\n```\n{}\n```", cmd_command, output),
+                            });
+                        }
+                        Err(error) => {
+                            cmd.error = Some(error.clone());
+                            app_state.current_messages_mut().push(models::Message {
+                                role: models::Role::Assistant,
+                                content: format!("Command failed:\n```\n{}\n```\n\nError:\n```\n{}\n```", cmd_command, error),
+                            });
+                        }
+                    }
+                }
             }
             None => break,
         }

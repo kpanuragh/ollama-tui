@@ -170,3 +170,22 @@ pub struct StreamChatResponse {
     pub done: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct AgentCommand {
+    pub command: String,
+    pub description: String,
+    pub risk_level: RiskLevel,
+    pub approved: bool,
+    pub executed: bool,
+    pub output: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RiskLevel {
+    Safe,      // Read-only operations, basic file listing
+    Moderate,  // File modifications, directory operations
+    High,      // System operations, network operations, deletions
+    Critical,  // Dangerous operations (rm -rf, sudo, etc.)
+}
+

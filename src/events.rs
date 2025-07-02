@@ -11,6 +11,8 @@ pub enum AppEvent {
     OllamaChunk(Result<String, String>),
     OllamaDone,
     Models(Result<Vec<String>, String>),
+    AgentCommands(Vec<models::AgentCommand>),
+    CommandExecuted(usize, Result<String, String>),
 }
 
 pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
@@ -45,6 +47,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                         models_tx.send(AppEvent::Models(result)).await.ok();
                     });
                 }
+                return false;
+            }
+            KeyCode::Char('a') => {
+                app.mode = AppMode::Agent;
+                app.agent_mode = true;
                 return false;
             }
             _ => {}
@@ -115,6 +122,111 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
             KeyCode::Down => app.next_session(),
             KeyCode::Enter => {
                 app.switch_to_selected_session().ok();
+            }
+            _ => {}
+        },
+        AppMode::Agent => match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => {
+                app.mode = AppMode::Normal;
+                app.agent_mode = false;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            }
+            KeyCode::Enter => {
+                if !app.input.trim().is_empty() && !app.is_loading {
+                    let input_content = app.input.clone();
+                    
+                    // Add user message with agent prompt
+                    let user_message = if app.agent_mode {
+                        let context = std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "Unknown directory".to_string());
+                        
+                        crate::agent::Agent::create_agent_prompt(&input_content, &context)
+                    } else {
+                        input_content.clone()
+                    };
+
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::User,
+                        content: input_content,
+                    });
+                    app.input.clear();
+
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: String::new(),
+                    });
+
+                    app.is_loading = true;
+                    app.scroll_offset = 0;
+
+                    let client = app.http_client.clone();
+                    let model = app.current_model.clone();
+                    let base_url = app.ollama_base_url.clone();
+                    let auth_config = app.config.auth_method.clone();
+                    let auth_enabled = app.config.auth_enabled;
+                    let tx_clone = tx.clone();
+
+                    // Create messages with agent prompt
+                    let mut messages = app.current_messages().clone();
+                    if let Some(last_user_msg) = messages.iter_mut().rev().find(|m| m.role == models::Role::User) {
+                        last_user_msg.content = user_message;
+                    }
+
+                    tokio::spawn(async move {
+                        ollama::stream_chat_request(
+                            &client,
+                            &base_url,
+                            &model,
+                            &messages,
+                            auth_enabled,
+                            auth_config.as_ref(),
+                            tx_clone,
+                        )
+                        .await;
+                    });
+                }
+            }
+            KeyCode::Char('y') => {
+                // Approve current pending command
+                if let Some(index) = app.command_approval_index {
+                    if let Some(cmd) = app.pending_commands.get_mut(index) {
+                        if !cmd.executed {
+                            cmd.approved = true;
+                            let command = cmd.command.clone();
+                            let tx_clone = tx.clone();
+                            
+                            tokio::spawn(async move {
+                                let result = crate::agent::Agent::execute_command(&command).await;
+                                tx_clone.send(AppEvent::CommandExecuted(index, result.map_err(|e| e.to_string()))).await.ok();
+                            });
+                            
+                            // Move to next command
+                            if index + 1 < app.pending_commands.len() {
+                                app.command_approval_index = Some(index + 1);
+                            } else {
+                                app.command_approval_index = None;
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('n') => {
+                // Reject current pending command and move to next
+                if let Some(index) = app.command_approval_index {
+                    if index + 1 < app.pending_commands.len() {
+                        app.command_approval_index = Some(index + 1);
+                    } else {
+                        app.command_approval_index = None;
+                    }
+                }
+            }
+            KeyCode::Up => app.scroll_offset = app.scroll_offset.saturating_add(1),
+            KeyCode::Down => app.scroll_offset = app.scroll_offset.saturating_sub(1),
+            KeyCode::Char(c) => app.input.push(c),
+            KeyCode::Backspace => {
+                app.input.pop();
             }
             _ => {}
         },
