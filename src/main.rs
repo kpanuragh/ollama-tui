@@ -89,7 +89,9 @@ async fn main() -> Result<()> {
                 if let Some(last_message) = app_state.current_messages_mut().last_mut() {
                     if last_message.role == models::Role::Assistant {
                         last_message.content.push_str(&chunk);
-                        app_state.scroll_offset = 0;
+                        // Enable auto-scroll when new content arrives
+                        app_state.auto_scroll = true;
+                        app_state.auto_scroll_to_bottom();
                     }
                 }
             }
@@ -98,6 +100,9 @@ async fn main() -> Result<()> {
                     if last_message.role == models::Role::Assistant {
                         let err_msg = format!("\n[STREAM ERROR: {}]", e);
                         last_message.content.push_str(&err_msg);
+                        // Enable auto-scroll when error content arrives
+                        app_state.auto_scroll = true;
+                        app_state.auto_scroll_to_bottom();
                     }
                 }
                 app_state.is_loading = false;

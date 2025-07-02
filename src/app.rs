@@ -25,6 +25,7 @@ pub struct AppState {
     pub is_loading: bool,
     pub is_fetching_models: bool,
     pub scroll_offset: u16,
+    pub auto_scroll: bool,  // Add auto-scroll flag
     pub http_client: Client,
     pub db_conn: Connection,
     pub ollama_base_url: String,
@@ -98,6 +99,7 @@ impl AppState {
             is_loading: false,
             is_fetching_models: false,
             scroll_offset: 0,
+            auto_scroll: true, // Initialize auto-scroll to true
             http_client: client,
             db_conn: conn,
             ollama_base_url,
@@ -207,6 +209,15 @@ impl AppState {
         }
         self.mode = AppMode::Normal;
         Ok(())
+    }
+
+    pub fn auto_scroll_to_bottom(&mut self) {
+        if !self.auto_scroll {
+            return;
+        }
+        
+        // For auto-scroll, always set offset to 0 which shows the bottom in ratatui
+        self.scroll_offset = 0;
     }
 }
 

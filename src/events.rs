@@ -54,6 +54,14 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                 app.agent_mode = true;
                 return false;
             }
+            KeyCode::Char('s') => {
+                // Toggle auto-scroll
+                app.auto_scroll = !app.auto_scroll;
+                if app.auto_scroll {
+                    app.scroll_offset = 0; // Jump to bottom when enabling auto-scroll
+                }
+                return false;
+            }
             _ => {}
         }
     }
@@ -77,7 +85,8 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                     });
 
                     app.is_loading = true;
-                    app.scroll_offset = 0;
+                    app.auto_scroll = true;
+                    app.auto_scroll_to_bottom();
 
                     let client = app.http_client.clone();
                     let model = app.current_model.clone();
@@ -101,8 +110,17 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                 }
             }
             KeyCode::Tab => app.mode = AppMode::SessionSelection,
-            KeyCode::Up => app.scroll_offset = app.scroll_offset.saturating_add(1),
-            KeyCode::Down => app.scroll_offset = app.scroll_offset.saturating_sub(1),
+            KeyCode::Up => {
+                app.scroll_offset = app.scroll_offset.saturating_add(1);
+                app.auto_scroll = false; // Disable auto-scroll when user manually scrolls
+            },
+            KeyCode::Down => {
+                app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                // If user scrolls to bottom (offset 0), re-enable auto-scroll
+                if app.scroll_offset == 0 {
+                    app.auto_scroll = true;
+                }
+            },
             _ => {}
         },
         AppMode::ModelSelection => match key.code {
@@ -159,7 +177,8 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                     });
 
                     app.is_loading = true;
-                    app.scroll_offset = 0;
+                    app.auto_scroll = true;
+                    app.auto_scroll_to_bottom();
 
                     let client = app.http_client.clone();
                     let model = app.current_model.clone();
@@ -222,8 +241,17 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                     }
                 }
             }
-            KeyCode::Up => app.scroll_offset = app.scroll_offset.saturating_add(1),
-            KeyCode::Down => app.scroll_offset = app.scroll_offset.saturating_sub(1),
+            KeyCode::Up => {
+                app.scroll_offset = app.scroll_offset.saturating_add(1);
+                app.auto_scroll = false; // Disable auto-scroll when user manually scrolls
+            },
+            KeyCode::Down => {
+                app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                // If user scrolls to bottom (offset 0), re-enable auto-scroll
+                if app.scroll_offset == 0 {
+                    app.auto_scroll = true;
+                }
+            },
             KeyCode::Char(c) => app.input.push(c),
             KeyCode::Backspace => {
                 app.input.pop();

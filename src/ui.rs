@@ -25,11 +25,16 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     let sessions_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color));
 
     let chat_messages = render_messages(app.current_messages(), left_chunks[0].width, &app.config.theme);
+    let chat_title = if app.auto_scroll {
+        "Chat History (Auto-scroll: ON)"
+    } else {
+        "Chat History (Auto-scroll: OFF)"
+    };
     let chat_paragraph = Paragraph::new(chat_messages)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Chat History")
+                .title(chat_title)
                 .border_style(chat_border_style),
         )
         .wrap(Wrap { trim: false })
@@ -49,13 +54,15 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
 
     let status_bar_text = if app.mode == AppMode::Agent {
         format!(
-            "AGENT MODE | Model: {} | Ctrl+A: Exit Agent | Y: Approve | N: Reject | Ctrl+C: Quit",
-            app.current_model
+            "AGENT MODE | Model: {} | Ctrl+A: Exit Agent | Y: Approve | N: Reject | Ctrl+S: Auto-scroll {} | Ctrl+C: Quit",
+            app.current_model,
+            if app.auto_scroll { "ON" } else { "OFF" }
         )
     } else {
         format!(
-            "Model: {} | Ctrl+D: Clear | Ctrl+L: Models | Ctrl+A: Agent | Tab: Sessions | Ctrl+C: Quit",
-            app.current_model
+            "Model: {} | Ctrl+D: Clear | Ctrl+L: Models | Ctrl+A: Agent | Ctrl+S: Auto-scroll {} | Tab: Sessions | Ctrl+C: Quit",
+            app.current_model,
+            if app.auto_scroll { "ON" } else { "OFF" }
         )
     };
     let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
