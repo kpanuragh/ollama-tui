@@ -39,7 +39,7 @@
         # Build the Rust package
         ollama-tui = pkgs.rustPlatform.buildRustPackage {
           pname = "ollama-tui";
-          version = "1.2.5";
+          version = "1.2.6";
 
           src = ./.;
 
