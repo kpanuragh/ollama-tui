@@ -53,7 +53,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     f.render_widget(input_paragraph, left_chunks[1]);
 
     let status_bar_text = format!(
-        "Model: {} | Ctrl+D: Clear | Ctrl+M: Models | Tab: Sessions | Ctrl+C: Quit",
+        "Model: {} | Ctrl+D: Clear | Ctrl+L: Models | Tab: Sessions | Ctrl+C: Quit",
         app.current_model
     );
     let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(Color::DarkGray));
