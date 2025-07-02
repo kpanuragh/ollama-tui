@@ -10,6 +10,7 @@ use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
 
 pub fn ui(f: &mut Frame, app: &mut AppState) {
+
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
@@ -20,18 +21,10 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .constraints([Constraint::Min(0), Constraint::Length(3), Constraint::Length(1)].as_ref())
         .split(main_chunks[0]);
 
-    let chat_border_style = if app.mode == AppMode::Normal {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let sessions_border_style = if app.mode == AppMode::SessionSelection {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
+    let chat_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.chat_border_color));
+    let sessions_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color));
 
-    let chat_messages = render_messages(app.current_messages(), left_chunks[0].width);
+    let chat_messages = render_messages(app.current_messages(), left_chunks[0].width, &app.config.theme);
     let chat_paragraph = Paragraph::new(chat_messages)
         .block(
             Block::default()
@@ -56,7 +49,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         "Model: {} | Ctrl+D: Clear | Ctrl+L: Models | Tab: Sessions | Ctrl+C: Quit",
         app.current_model
     );
-    let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(Color::DarkGray));
+    let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
     f.render_widget(status_bar, left_chunks[2]);
 
     if !app.is_loading && app.mode == AppMode::Normal {
@@ -88,7 +81,9 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
                 .title("Sessions (Ctrl+N)")
                 .border_style(sessions_border_style),
         )
-        .highlight_style(Style::default().bg(Color::LightGreen).fg(Color::Black))
+        .highlight_style(Style::default()
+            .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
+            .fg(app.config.theme.parse_color(&app.config.theme.highlight_color)))
         .highlight_symbol(">> ");
 
     f.render_stateful_widget(sessions_list, main_chunks[1], &mut app.session_list_state);
@@ -103,7 +98,7 @@ fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     let block = Block::default()
         .title("Select a Model (Enter to confirm, Esc/q to cancel)")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
+        .border_style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.popup_border_color)));
 
     if app.is_fetching_models {
         let text = Paragraph::new("Fetching models...")
@@ -135,8 +130,8 @@ fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
         .block(block)
         .highlight_style(
             Style::default()
-                .bg(Color::LightGreen)
-                .fg(Color::Black)
+                .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
+                .fg(app.config.theme.parse_color(&app.config.theme.highlight_color))
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol(">> ");
@@ -164,12 +159,12 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-fn render_messages<'a>(messages: &'a [models::Message], width: u16) -> Text<'a> {
+fn render_messages<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme) -> Text<'a> {
     let mut lines = Vec::new();
     for message in messages {
         let style = match message.role {
-            models::Role::User => Style::default().fg(Color::Cyan),
-            models::Role::Assistant => Style::default().fg(Color::LightGreen),
+            models::Role::User => Style::default().fg(theme.parse_color(&theme.user_message_color)),
+            models::Role::Assistant => Style::default().fg(theme.parse_color(&theme.assistant_message_color)),
         };
         let prefix = match message.role {
             models::Role::User => "You: ",

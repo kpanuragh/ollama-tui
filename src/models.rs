@@ -25,6 +25,90 @@ pub struct Config {
     pub auth_enabled: bool,
     #[serde(flatten)]
     pub auth_method: Option<AuthMethod>,
+    #[serde(default)]
+    pub theme: Theme,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Theme {
+    #[serde(default = "default_chat_border_color")]
+    pub chat_border_color: String,
+    #[serde(default = "default_sessions_border_color")]
+    pub sessions_border_color: String,
+    #[serde(default = "default_user_message_color")]
+    pub user_message_color: String,
+    #[serde(default = "default_assistant_message_color")]
+    pub assistant_message_color: String,
+    #[serde(default = "default_highlight_color")]
+    pub highlight_color: String,
+    #[serde(default = "default_highlight_bg_color")]
+    pub highlight_bg_color: String,
+    #[serde(default = "default_status_bar_color")]
+    pub status_bar_color: String,
+    #[serde(default = "default_popup_border_color")]
+    pub popup_border_color: String,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self {
+            chat_border_color: default_chat_border_color(),
+            sessions_border_color: default_sessions_border_color(),
+            user_message_color: default_user_message_color(),
+            assistant_message_color: default_assistant_message_color(),
+            highlight_color: default_highlight_color(),
+            highlight_bg_color: default_highlight_bg_color(),
+            status_bar_color: default_status_bar_color(),
+            popup_border_color: default_popup_border_color(),
+        }
+    }
+}
+
+// Default color functions
+fn default_chat_border_color() -> String { "yellow".to_string() }
+fn default_sessions_border_color() -> String { "yellow".to_string() }
+fn default_user_message_color() -> String { "cyan".to_string() }
+fn default_assistant_message_color() -> String { "light_green".to_string() }
+fn default_highlight_color() -> String { "black".to_string() }
+fn default_highlight_bg_color() -> String { "light_green".to_string() }
+fn default_status_bar_color() -> String { "dark_gray".to_string() }
+fn default_popup_border_color() -> String { "yellow".to_string() }
+
+// Helper function to parse color strings to ratatui Color
+impl Theme {
+    pub fn parse_color(&self, color_str: &str) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match color_str.to_lowercase().as_str() {
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "gray" | "grey" => Color::Gray,
+            "dark_gray" | "dark_grey" => Color::DarkGray,
+            "light_red" => Color::LightRed,
+            "light_green" => Color::LightGreen,
+            "light_yellow" => Color::LightYellow,
+            "light_blue" => Color::LightBlue,
+            "light_magenta" => Color::LightMagenta,
+            "light_cyan" => Color::LightCyan,
+            "white" => Color::White,
+            // Parse hex colors if needed (e.g., "#FF0000")
+            hex if hex.starts_with('#') && hex.len() == 7 => {
+                if let Ok(r) = u8::from_str_radix(&hex[1..3], 16) {
+                    if let Ok(g) = u8::from_str_radix(&hex[3..5], 16) {
+                        if let Ok(b) = u8::from_str_radix(&hex[5..7], 16) {
+                            return Color::Rgb(r, g, b);
+                        }
+                    }
+                }
+                Color::White // fallback
+            }
+            _ => Color::White, // fallback for unknown colors
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

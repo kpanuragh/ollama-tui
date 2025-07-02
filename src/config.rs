@@ -12,6 +12,7 @@ impl Default for Config {
             db_filename: "ollama-tui.sqlite".to_string(),
             auth_enabled: false,
             auth_method: None,
+            theme: crate::models::Theme::default(),
         }
     }
 }

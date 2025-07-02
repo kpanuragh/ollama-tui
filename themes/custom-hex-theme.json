@@ -1,0 +1,16 @@
+{
+  "ollama_host": "http://127.0.0.1",
+  "ollama_port": 11434,
+  "db_filename": "ollama-tui.sqlite",
+  "auth_enabled": false,
+  "theme": {
+    "chat_border_color": "#FFD700",
+    "sessions_border_color": "#FFD700", 
+    "user_message_color": "#87CEEB",
+    "assistant_message_color": "#98FB98",
+    "highlight_color": "#000000",
+    "highlight_bg_color": "#FFD700",
+    "status_bar_color": "#696969",
+    "popup_border_color": "#FFD700"
+  }
+}
