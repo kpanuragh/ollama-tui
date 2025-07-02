@@ -9,6 +9,12 @@ use ratatui::{
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
 
+/// Renders the main terminal user interface for the chat application.
+///
+/// This function draws the chat history, input box, status bar, and session list,
+/// adapting the layout and content based on the current application mode (Normal, Agent, or ModelSelection).
+/// It conditionally displays popups for model selection and agent command approval when appropriate,
+/// and manages cursor positioning and visual styling according to the active theme and state.
 pub fn ui(f: &mut Frame, app: &mut AppState) {
 
     let main_chunks = Layout::default()
@@ -111,6 +117,11 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     }
 }
 
+/// Renders a centered popup for selecting a model in the terminal UI.
+///
+/// The popup displays a loading message while models are being fetched, a message if no models are available,
+/// or a selectable list of available models. The currently selected model is highlighted, and the user can confirm
+/// or cancel the selection using keyboard controls. The popup occupies 60% of the terminal width and 50% of the height.
 fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     let popup_area = centered_rect(60, 50, f.area());
     let block = Block::default()
@@ -149,6 +160,16 @@ fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     }
 }
 
+/// Renders a popup for reviewing and approving agent commands.
+///
+/// Displays detailed information about the currently selected command, including its risk level, description, and command text. Also shows a list of all pending commands with their statuses and highlights the command under review. The popup allows users to approve or reject commands using keyboard input.
+///
+/// # Examples
+///
+/// ```
+/// // This function is intended to be called within the main UI rendering loop:
+/// render_agent_commands_popup(&mut frame, &mut app_state);
+/// ```
 fn render_agent_commands_popup(f: &mut Frame, app: &mut AppState) {
     let popup_area = centered_rect(80, 70, f.area());
     let block = Block::default()
@@ -240,6 +261,19 @@ fn render_agent_commands_popup(f: &mut Frame, app: &mut AppState) {
     }
 }
 
+/// Calculates a rectangle centered within a given area, occupying the specified percentage of width and height.
+///
+/// The returned rectangle is centered inside `r` and sized to `percent_x`% of the width and `percent_y`% of the height.
+///
+/// # Examples
+///
+/// ```
+/// use ratatui::layout::Rect;
+/// let area = Rect::new(0, 0, 100, 40);
+/// let centered = centered_rect(60, 50, area);
+/// assert_eq!(centered.width, 60);
+/// assert_eq!(centered.height, 20);
+/// ```
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
