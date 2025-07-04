@@ -1,204 +1,219 @@
 
 # Ollama TUI 🚀
 
-A feature-rich, terminal-based user interface for interacting with [Ollama](https://ollama.com/ "null"), written in Rust. Enjoy a polished and responsive chat experience directly from your command line.
+A feature-rich, terminal-based user interface for interacting with [Ollama](https://ollama.com/), written in Rust. Enjoy a polished and responsive chat experience with **vim-style navigation** directly from your command line.
 
 ![Screenshot](https://raw.githubusercontent.com/kpanuragh/ollama-chat/main/ollama.png)
 
 ## ✨ Features
 
--   **Polished** Terminal **UI**: A clean, responsive interface built with `ratatui`.
-    
--   **Streaming Responses**: Get instant feedback as the model generates its response token by token.
-    
--   **Persistent Chat History**: All conversations are automatically saved to a local SQLite database and reloaded on startup.
-    
--   **Chat Session Management**:
-    
-    -   Organize conversations into separate, persistent sessions.
-        
-    -   Create new sessions on the fly (`Ctrl+N`).
-        
-    -   Easily switch between sessions (`Tab`).
-        
-    -   Clear the history of the current session (`Ctrl+D`).
-        
--   **Dynamic Model Switching**: Pop-up interface (`Ctrl+L`) to switch between any of your available Ollama models.
-    
--   **Secure & Configurable**:
-    
-    -   **External Configuration**: Settings are stored in a `config.json` file in the standard OS configuration directory.
-        
-    -   **Flexible Authentication**: Supports both `Bearer Token` and `Basic` (username/password) authentication for connecting to a secured Ollama server.
-        
--   **Cross-Platform**: Runs on Linux, macOS, and Windows.
-    
+- **🎯 Vim-Style Interface**: Full vim-like modal editing with Normal, Insert, and Command modes
+- **💬 Multiple Chat Sessions**: Create, switch between, and manage multiple persistent chat sessions
+- **⚡ Streaming Responses**: Get instant feedback as the model generates responses token by token
+- **💾 Persistent History**: All conversations automatically saved to local SQLite database
+- **🔄 Dynamic Model Switching**: Seamless switching between available Ollama models
+- **🎨 Themeable Interface**: Customizable colors and themes
+- **🔐 Secure Authentication**: Support for Bearer Token and Basic authentication
+- **📱 Cross-Platform**: Runs on Linux, macOS, and Windows
+- **⌨️ Keyboard-Driven**: Complete navigation without touching the mouse
+
+## 🎮 Vim-Style Interface
+
+### Modes
+
+- **Normal Mode** (`-- NORMAL --`): Navigate and issue commands
+- **Insert Mode** (`-- INSERT --`): Type messages and chat with AI
+- **Command Mode** (`-- COMMAND --`): Execute vim-style commands
+- **Help Mode** (`-- HELP --`): Comprehensive help system
+
+### Key Bindings
+
+#### Normal Mode
+| Key | Action |
+|-----|--------|
+| `i` | Enter insert mode |
+| `o`/`O` | Enter insert mode (clear input) |
+| `:` | Enter command mode |
+| `?` | Show help popup |
+| `q` | Quick quit |
+| `j`/`↓` | Scroll down in chat |
+| `k`/`↑` | Scroll up in chat |
+| `g` | Go to top of chat |
+| `G` | Go to bottom of chat |
+| `PgUp`/`PgDn` | Page up/down |
+
+#### Insert Mode
+| Key | Action |
+|-----|--------|
+| `ESC` | Return to normal mode |
+| `Enter` | Send message |
+| `Backspace` | Delete character |
+| *Any character* | Type message |
+
+#### Command Mode
+| Command | Action |
+|---------|--------|
+| `:q` | Quit application |
+| `:w` | Save current session |
+| `:wq` | Save and quit |
+| `:n` | Create new session |
+| `:c` | Clear current session |
+| `:m` | Select model |
+| `:s` | Select session |
+| `:a` | Enter agent mode |
+| `:h` or `:?` | Show help |
+| `:d` | Delete current session |
+| `:d<N>` | Delete session N |
+| `:b<N>` | Switch to session N |
 
 ## 🔧 Installation & Setup
 
 ### Prerequisites
 
-1.  **Rust**: Ensure you have the Rust toolchain installed. You can get it from [rust-lang.org](https://www.rust-lang.org/tools/install "null").
-    
-2.  **Ollama**: The Ollama server must be installed and running on your machine or a remote server. Get it from [ollama.com](https://ollama.com/ "null").
-    
-3.  **An Ollama Model**: Pull at least one model. For example:
-    
-    ```
-    ollama run llama3
-    
-    ```
-    
+1. **Rust**: Install from [rust-lang.org](https://www.rust-lang.org/tools/install)
+2. **Ollama**: Install and run from [ollama.com](https://ollama.com/)
+3. **An Ollama Model**: Pull at least one model:
+   ```bash
+   ollama run llama3
+   ```
 
 ### Building from Source
 
-1.  **Clone the repository:**
-    
-    ```
-    git clone <your-repo-url>
-    cd ollama-tui
-    
-    ```
-    
-2.  **Build the application:**
-    
-    ```
-    cargo build --release
-    
-    ```
-    
-3.  **Run the application:**
-    
-    ```
-    ./target/release/ollama-tui
-    
-    ```
-    
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd ollama-tui
+   ```
+
+2. **Build the application:**
+   ```bash
+   cargo build --release
+   ```
+
+3. **Run the application:**
+   ```bash
+   ./target/release/ollama-tui
+   ```
+
+### Using Nix (Recommended)
+
+If you have Nix with flakes enabled:
+
+```bash
+nix develop
+cargo run
+```
 
 ## ⚙️ Configuration
 
-On the first run, the application will create a `config.json` file in your system's default configuration directory:
+Configuration file is automatically created at:
 
--   **Linux**: `~/.config/ollama-tui/config.json`
-    
--   **macOS**: `~/Library/Application Support/com.rust-tui.ollama-tui/config.json`
-    
--   **Windows**: `C:\Users\<YourUser>\AppData\Roaming\rust-tui\ollama-tui\config\config.json`
-    
-
-You can edit this file to configure the Ollama server connection, database path, and authentication.
+- **Linux**: `~/.config/ollama-tui/config.json`
+- **macOS**: `~/Library/Application Support/com.rust-tui.ollama-tui/config.json`
+- **Windows**: `%APPDATA%\rust-tui\ollama-tui\config\config.json`
 
 ### Default Configuration
 
-```
+```json
 {
-  "ollama_host": "[http://127.0.0.1](http://127.0.0.1)",
+  "ollama_host": "http://127.0.0.1",
   "ollama_port": 11434,
   "db_filename": "ollama-tui.sqlite",
   "auth_enabled": false,
-  "auth_method": null
+  "auth_method": null,
+  "theme": {
+    "chat_border_color": "blue",
+    "sessions_border_color": "green",
+    "user_message_color": "cyan",
+    "assistant_message_color": "white",
+    "status_bar_color": "gray",
+    "highlight_color": "black",
+    "highlight_bg_color": "white",
+    "popup_border_color": "yellow"
+  }
 }
-
 ```
 
 ### Authentication Examples
 
 #### Bearer Token
-
-```
+```json
 {
-  "ollama_host": "[https://your.remote.ollama.host](https://your.remote.ollama.host)",
+  "ollama_host": "https://your.remote.ollama.host",
   "ollama_port": 443,
-  "db_filename": "ollama-tui.sqlite",
   "auth_enabled": true,
-  "type": "bearer",
-  "token": "your-secret-api-token"
+  "auth_method": {
+    "type": "bearer",
+    "token": "your-secret-api-token"
+  }
 }
-
 ```
 
 #### Basic Authentication
-
-```
+```json
 {
-  "ollama_host": "[https://your.remote.ollama.host](https://your.remote.ollama.host)",
+  "ollama_host": "https://your.remote.ollama.host",
   "ollama_port": 443,
-  "db_filename": "ollama-tui.sqlite",
   "auth_enabled": true,
-  "type": "basic",
-  "username": "your-username",
-  "password": "your-secure-password"
+  "auth_method": {
+    "type": "basic",
+    "username": "your-username",
+    "password": "your-secure-password"
+  }
 }
-
 ```
 
-## ⌨️ Keybindings
+## 🚀 Quick Start Guide
 
-Key
+1. **Start the application** - You'll be in Normal mode
+2. **Press `i`** to enter Insert mode and type your first message
+3. **Press `Enter`** to send the message
+4. **Press `ESC`** to return to Normal mode
+5. **Press `:`** to enter Command mode and try:
+   - `:n` to create a new session
+   - `:m` to select a different model
+   - `:s` to switch between sessions
+   - `:?` for comprehensive help
 
-Action
+## 💡 Tips & Tricks
 
-Context
+- **Multiple Sessions**: Use `:n` to create topic-specific chat sessions
+- **Quick Navigation**: Use `g` and `G` to jump to top/bottom of long chats
+- **Session Management**: Use `:b1`, `:b2`, etc. to quickly switch to specific sessions
+- **Model Switching**: Use `:m` to change AI models mid-conversation
+- **Help System**: Press `?` from Normal mode for complete command reference
 
-`Ctrl` + `C`
+## 🎨 Customization
 
-Quit the application
+### Themes
+Edit the `theme` section in your config.json to customize colors:
 
-Global
+```json
+"theme": {
+  "chat_border_color": "magenta",
+  "sessions_border_color": "cyan",
+  "user_message_color": "green",
+  "assistant_message_color": "yellow"
+}
+```
 
-`Ctrl` + `N`
-
-Create a new chat session
-
-Global
-
-`Ctrl` + `D`
-
-**Delete** all messages in current session
-
-Normal Mode
-
-`Ctrl` + `L`
-
-Open the **M**odel selection popup
-
-Global
-
-`Tab`
-
-Switch focus to the Sessions panel
-
-Normal Mode
-
-`Esc` or `q`
-
-Return to Normal Mode from a popup/panel
-
-Model/Session panels
-
-`Enter`
-
-Send message / Confirm selection
-
-Normal Mode / Popups
-
-`Up`/`Down` Arrow
-
-Navigate lists / Scroll chat history
-
-All
-
-Any other key
-
-Type in the input box
-
-Normal Mode
+Available colors: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`
 
 ## 🤝 Contributing
 
-Contributions are welcome! If you have ideas for new features, bug fixes, or improvements, feel free to open an issue or submit a pull request.
+Contributions are welcome! Areas for improvement:
+
+- Additional vim-style commands
+- Theme system enhancements
+- Agent mode development
+- Performance optimizations
+- Additional authentication methods
 
 ## 📄 License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+---
+
+**Made with ❤️ for terminal enthusiasts and vim lovers**
 

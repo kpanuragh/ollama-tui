@@ -92,6 +92,26 @@ async fn main() -> Result<()> {
                     if events::handle_key_event(key, &mut app_state, tx.clone()).await {
                         break;
                     }
+                    
+                    // Check if we need to fetch models after handling the key event
+                    if app_state.mode == app::AppMode::ModelSelection && app_state.is_fetching_models {
+                        let models_tx = tx.clone();
+                        let http_client_clone = app_state.http_client.clone();
+                        let base_url_clone = app_state.ollama_base_url.clone();
+                        let auth_config_clone = app_state.config.auth_method.clone();
+                        let auth_enabled_clone = app_state.config.auth_enabled;
+                        
+                        tokio::spawn(async move {
+                            let result = ollama::fetch_models(
+                                &http_client_clone,
+                                &base_url_clone,
+                                auth_enabled_clone,
+                                auth_config_clone.as_ref(),
+                            )
+                            .await;
+                            models_tx.send(events::AppEvent::Models(result)).await.ok();
+                        });
+                    }
                 }
             }
             Some(events::AppEvent::Tick) => {

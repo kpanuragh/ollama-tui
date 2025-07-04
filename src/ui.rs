@@ -36,7 +36,21 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .split(main_chunks[0]);
 
     let chat_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.chat_border_color));
-    let sessions_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color));
+    let sessions_border_style = if app.mode == AppMode::SessionSelection {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color))
+    };
+
+    let sessions_title = if app.mode == AppMode::SessionSelection {
+        format!("Sessions ({}/{}) [j/k:navigate | Enter:select | d:delete | ESC:exit]", 
+            app.current_session_index + 1, 
+            app.sessions.len())
+    } else {
+        format!("Sessions ({}/{}) [:n | :s | :d]", 
+            app.current_session_index + 1, 
+            app.sessions.len())
+    };
 
     // Create the list items first, before borrowing app mutably
     let messages = app.current_messages().clone();
@@ -54,27 +68,64 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .highlight_symbol("  ");  // Less intrusive highlight
     f.render_stateful_widget(chat_list, left_chunks[0], &mut app.chat_list_state);
 
-    let input_text = if app.is_loading {
-        "Thinking...".to_string()
-    } else {
-        app.input.clone()
+    let input_title = match app.mode {
+        AppMode::Normal => "-- NORMAL --",
+        AppMode::Insert => "-- INSERT --",
+        AppMode::Command => "-- COMMAND --",
+        AppMode::ModelSelection => "-- MODEL SELECTION --",
+        AppMode::SessionSelection => "-- SESSION SELECTION --",
+        AppMode::Agent => "-- AGENT --",
+        AppMode::Help => "-- HELP --",
     };
+
+    let input_text = match app.mode {
+        AppMode::Command => format!(":{}", app.vim_command),
+        _ => {
+            if app.is_loading {
+                "Thinking...".to_string()
+            } else {
+                app.input.clone()
+            }
+        }
+    };
+    
     let input_paragraph = Paragraph::new(input_text.as_str())
-        .block(Block::default().borders(Borders::ALL).title("Input"));
+        .block(Block::default().borders(Borders::ALL).title(input_title));
     f.render_widget(input_paragraph, left_chunks[1]);
 
-    let status_bar_text = format!(
-        "Model: {} | Ctrl+N: New Session | Ctrl+D: Clear | Ctrl+L: Models | Tab: Switch Session | Ctrl+C: Quit",
-        app.current_model
-    );
+    let status_bar_text = match app.mode {
+        AppMode::Normal => format!(
+            "Model: {} | ? for help | i:insert | :q quit | :n new | :m models | :s sessions",
+            app.current_model
+        ),
+        AppMode::Insert => format!(
+            "Model: {} | ESC to normal mode | Enter to send",
+            app.current_model
+        ),
+        AppMode::Command => "Type command and press Enter".to_string(),
+        AppMode::SessionSelection => "SESSION SELECTION: j/k to navigate | Enter to select | d to delete | ESC to exit".to_string(),
+        _ => format!("Model: {} | ESC to normal mode", app.current_model),
+    };
     let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
     f.render_widget(status_bar, left_chunks[2]);
 
-    if !app.is_loading && app.mode == AppMode::Normal {
-        f.set_cursor(
-            left_chunks[1].x + app.input.width() as u16 + 1,
-            left_chunks[1].y + 1,
-        );
+    // Set cursor position based on mode
+    match app.mode {
+        AppMode::Insert => {
+            if !app.is_loading {
+                f.set_cursor(
+                    left_chunks[1].x + app.input.width() as u16 + 1,
+                    left_chunks[1].y + 1,
+                );
+            }
+        }
+        AppMode::Command => {
+            f.set_cursor(
+                left_chunks[1].x + app.vim_command.width() as u16 + 2, // +2 for ":"
+                left_chunks[1].y + 1,
+            );
+        }
+        _ => {}
     }
 
     let session_items: Vec<ListItem> = app
@@ -92,24 +143,35 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         })
         .collect();
 
+    let sessions_highlight_style = if app.mode == AppMode::SessionSelection {
+        Style::default()
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
+            .fg(app.config.theme.parse_color(&app.config.theme.highlight_color))
+    };
+
     let sessions_list = List::new(session_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!("Sessions ({}/{}) [Ctrl+N: New | Tab: Switch | D: Delete]", 
-                    app.current_session_index + 1, 
-                    app.sessions.len()))
+                .title(sessions_title)
                 .border_style(sessions_border_style),
         )
-        .highlight_style(Style::default()
-            .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
-            .fg(app.config.theme.parse_color(&app.config.theme.highlight_color)))
+        .highlight_style(sessions_highlight_style)
         .highlight_symbol(">> ");
 
     f.render_stateful_widget(sessions_list, main_chunks[1], &mut app.session_list_state);
 
     if app.mode == AppMode::ModelSelection {
         render_model_selection_popup(f, app);
+    }
+    
+    if app.mode == AppMode::Help {
+        render_help_popup(f, app);
     }
 }
 
@@ -251,5 +313,66 @@ fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, them
     }
     
     list_items
+}
+
+fn render_help_popup(f: &mut Frame, app: &mut AppState) {
+    let popup_area = centered_rect(80, 70, f.area());
+    let block = Block::default()
+        .title("Help - Vim-style Commands (Press ? or ESC to close)")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.popup_border_color)));
+
+    let help_text = vec![
+        "VIM-STYLE NAVIGATION AND COMMANDS",
+        "",
+        "MODES:",
+        "  Normal Mode    - Navigate and issue commands",
+        "  Insert Mode    - Type messages",
+        "  Command Mode   - Enter vim-style commands",
+        "",
+        "NORMAL MODE KEYS:",
+        "  i              - Enter insert mode",
+        "  o/O            - Enter insert mode (clear input)",
+        "  :              - Enter command mode",
+        "  ?              - Show this help",
+        "  q              - Quick quit",
+        "  j/↓            - Scroll down",
+        "  k/↑            - Scroll up",
+        "  g              - Go to top",
+        "  G              - Go to bottom",
+        "  PgUp/PgDn      - Page up/down",
+        "",
+        "INSERT MODE KEYS:",
+        "  ESC            - Return to normal mode",
+        "  Enter          - Send message",
+        "  Backspace      - Delete character",
+        "",
+        "COMMAND MODE COMMANDS:",
+        "  :q             - Quit application",
+        "  :w             - Save current session",
+        "  :wq            - Save and quit",
+        "  :n             - Create new session",
+        "  :c             - Clear current session",
+        "  :m             - Select model",
+        "  :s             - Select session",
+        "  :a             - Enter agent mode",
+        "  :h or :?       - Show this help",
+        "  :d             - Delete current session",
+        "  :d<N>          - Delete session N",
+        "  :b<N>          - Switch to session N",
+        "",
+        "SPECIAL MODES:",
+        "  Model Selection - Use j/k or ↑/↓ to navigate, Enter to select",
+        "  Session Selection - Use j/k or ↑/↓ to navigate, Enter to select, d to delete",
+        "  Agent Mode     - Interactive AI agent (experimental)",
+    ];
+
+    let help_paragraph = Paragraph::new(help_text.join("\n"))
+        .block(block)
+        .wrap(Wrap { trim: true })
+        .scroll((0, 0));
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(help_paragraph, popup_area);
 }
 

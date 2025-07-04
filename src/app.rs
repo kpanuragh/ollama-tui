@@ -8,14 +8,18 @@ use textwrap::wrap;
 
 #[derive(PartialEq, Eq)]
 pub enum AppMode {
-    Normal,
+    Normal,         // Vim normal mode
+    Insert,         // Vim insert mode for typing messages
+    Command,        // Vim command mode
     ModelSelection,
     SessionSelection,
-    Agent,  // New agent mode
+    Agent,          // New agent mode
+    Help,           // Help popup mode
 }
 
 pub struct AppState {
     pub mode: AppMode,
+    pub vim_command: String,        // Command being typed in command mode
     pub sessions: Vec<models::ChatSession>,
     pub current_session_index: usize,
     pub session_list_state: ListState,
@@ -94,6 +98,7 @@ impl AppState {
 
         Ok(Self {
             mode: AppMode::Normal,
+            vim_command: String::new(),
             sessions,
             current_session_index,
             session_list_state,
@@ -308,6 +313,89 @@ impl AppState {
             let last_index = total_lines.saturating_sub(1);
             self.chat_list_state.select(Some(last_index));
         }
+    }
+
+    pub fn execute_vim_command(&mut self, command: &str) -> Result<()> {
+        match command {
+            "q" => {
+                // This will be handled in the main loop to exit
+                return Ok(());
+            }
+            "w" => {
+                // Save current session
+                if let Some(session) = self.sessions.get_mut(self.current_session_index) {
+                    db::save_session(&self.db_conn, session)?;
+                }
+            }
+            "wq" => {
+                // Save and quit
+                if let Some(session) = self.sessions.get_mut(self.current_session_index) {
+                    db::save_session(&self.db_conn, session)?;
+                }
+                // Quit signal will be handled in main loop
+            }
+            "n" => {
+                self.new_session()?;
+            }
+            "c" => {
+                self.clear_current_session()?;
+            }
+            "m" => {
+                self.mode = AppMode::ModelSelection;
+                self.is_fetching_models = true;
+                // The models will be fetched in the main loop
+            }
+            "s" => {
+                self.mode = AppMode::SessionSelection;
+                // Ensure the session list state is properly selected
+                self.session_list_state.select(Some(self.current_session_index));
+            }
+            "a" => {
+                self.mode = AppMode::Agent;
+                self.agent_mode = true;
+            }
+            "h" | "?" => {
+                self.mode = AppMode::Help;
+            }
+            cmd if cmd.starts_with("d") => {
+                // Delete session command
+                if cmd == "d" {
+                    self.delete_current_session()?;
+                } else if let Some(session_num) = cmd.strip_prefix("d") {
+                    if let Ok(index) = session_num.parse::<usize>() {
+                        if index > 0 && index <= self.sessions.len() {
+                            self.current_session_index = index - 1;
+                            self.delete_current_session()?;
+                        }
+                    }
+                }
+            }
+            cmd if cmd.starts_with("b") => {
+                // Switch to buffer/session command
+                if let Some(session_num) = cmd.strip_prefix("b") {
+                    if let Ok(index) = session_num.parse::<usize>() {
+                        if index > 0 && index <= self.sessions.len() {
+                            self.current_session_index = index - 1;
+                            self.session_list_state.select(Some(self.current_session_index));
+                            self.chat_list_state = ListState::default();
+                            db::save_config(
+                                &self.db_conn,
+                                "current_session_id",
+                                &self.sessions[self.current_session_index].id.to_string(),
+                            )?;
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Unknown command, ignore
+            }
+        }
+        Ok(())
+    }
+
+    pub fn should_fetch_models(&self) -> bool {
+        self.mode == AppMode::ModelSelection && self.is_fetching_models && !self.available_models.is_empty() == false
     }
 
 }
