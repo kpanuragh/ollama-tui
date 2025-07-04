@@ -7,7 +7,8 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 
 ## ✨ Features
 
-- **🎯 Vim-Style Interface**: Full vim-like modal editing with Normal, Insert, and Command modes
+- **🎯 Vim-Style Interface**: Full vim-like modal editing with Normal, Insert, Command, and Visual modes
+- **✂️ Visual Mode**: Select and copy chat text with vim-style visual selection
 - **💬 Multiple Chat Sessions**: Create, switch between, and manage multiple persistent chat sessions
 - **⚡ Streaming Responses**: Get instant feedback as the model generates responses token by token
 - **💾 Persistent History**: All conversations automatically saved to local SQLite database
@@ -24,6 +25,7 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 - **Normal Mode** (`-- NORMAL --`): Navigate and issue commands
 - **Insert Mode** (`-- INSERT --`): Type messages and chat with AI
 - **Command Mode** (`-- COMMAND --`): Execute vim-style commands
+- **Visual Mode** (`-- VISUAL --`): Select and copy chat text
 - **Help Mode** (`-- HELP --`): Comprehensive help system
 
 ### Key Bindings
@@ -33,6 +35,7 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 |-----|--------|
 | `i` | Enter insert mode |
 | `o`/`O` | Enter insert mode (clear input) |
+| `v` | Enter visual mode (select text) |
 | `:` | Enter command mode |
 | `?` | Show help popup |
 | `q` | Quick quit |
@@ -49,6 +52,17 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 | `Enter` | Send message |
 | `Backspace` | Delete character |
 | *Any character* | Type message |
+
+#### Visual Mode
+| Key | Action |
+|-----|--------|
+| `j`/`↓` | Extend selection down |
+| `k`/`↑` | Extend selection up |
+| `g` | Go to top (start of chat) |
+| `G` | Go to bottom (end of chat) |
+| `PgUp`/`PgDn` | Page up/down |
+| `y` | Copy selection to clipboard |
+| `ESC`/`q` | Return to normal mode |
 
 #### Command Mode
 | Command | Action |
@@ -76,6 +90,12 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
    ```bash
    ollama run llama3
    ```
+
+#### Clipboard Support (Optional)
+For Visual mode copy functionality, install one of these clipboard utilities:
+- **Linux**: `xclip`, `xsel`, or `wl-copy` (Wayland)
+- **macOS**: `pbcopy` (built-in)
+- **Windows**: `clip` (built-in)
 
 ### Building from Source
 
@@ -169,7 +189,8 @@ Configuration file is automatically created at:
 2. **Press `i`** to enter Insert mode and type your first message
 3. **Press `Enter`** to send the message
 4. **Press `ESC`** to return to Normal mode
-5. **Press `:`** to enter Command mode and try:
+5. **Press `v`** to enter Visual mode and select text to copy
+6. **Press `:`** to enter Command mode and try:
    - `:n` to create a new session
    - `:m` to select a different model
    - `:s` to switch between sessions
@@ -178,6 +199,8 @@ Configuration file is automatically created at:
 ## 💡 Tips & Tricks
 
 - **Multiple Sessions**: Use `:n` to create topic-specific chat sessions
+- **Visual Mode**: Press `v` to select and copy chat text with vim-style selection
+- **Quick Copy**: In Visual mode, select text with `j/k` and press `y` to copy to clipboard
 - **Quick Navigation**: Use `g` and `G` to jump to top/bottom of long chats
 - **Session Management**: Use `:b1`, `:b2`, etc. to quickly switch to specific sessions
 - **Model Switching**: Use `:m` to change AI models mid-conversation
@@ -203,11 +226,12 @@ Available colors: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, 
 
 Contributions are welcome! Areas for improvement:
 
-- Additional vim-style commands
+- Additional vim-style commands and visual mode enhancements
 - Theme system enhancements
 - Agent mode development
 - Performance optimizations
 - Additional authentication methods
+- Enhanced clipboard support and text manipulation features
 
 ## 📄 License
 

@@ -3,7 +3,7 @@ use crate::{
     models, ollama,
 };
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
 pub enum AppEvent {
@@ -11,7 +11,9 @@ pub enum AppEvent {
     OllamaChunk(Result<String, String>),
     OllamaDone,
     Models(Result<Vec<String>, String>),
+    #[allow(dead_code)]
     AgentCommands(Vec<models::AgentCommand>),
+    #[allow(dead_code)]
     CommandExecuted(usize, Result<String, String>),
     Tick,
 }
@@ -21,6 +23,7 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
         AppMode::Normal => handle_normal_mode(key, app, tx).await,
         AppMode::Insert => handle_insert_mode(key, app, tx).await,
         AppMode::Command => handle_command_mode(key, app).await,
+        AppMode::Visual => handle_visual_mode(key, app).await,
         AppMode::ModelSelection => handle_model_selection_mode(key, app).await,
         AppMode::SessionSelection => handle_session_selection_mode(key, app).await,
         AppMode::Agent => handle_agent_mode(key, app, tx).await,
@@ -28,7 +31,10 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
     }
 }
 
-async fn handle_normal_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+async fn handle_normal_mode(key: KeyEvent, app: &mut AppState, _tx: mpsc::Sender<AppEvent>) -> bool {
+    // Clear any status message on any key press
+    app.clear_status_message();
+    
     match key.code {
         KeyCode::Char('q') => return true, // Quick quit
         KeyCode::Char('i') => {
@@ -48,6 +54,9 @@ async fn handle_normal_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<
         }
         KeyCode::Char('?') => {
             app.mode = AppMode::Help;
+        }
+        KeyCode::Char('v') => {
+            app.start_visual_selection();
         }
         // Navigation in normal mode
         KeyCode::Char('j') | KeyCode::Down => {
@@ -254,7 +263,7 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
             if !app.input.trim().is_empty() && !app.is_loading {
                 let input_content = app.input.clone();
                 
-                let user_message = if app.agent_mode {
+                let _user_message = if app.agent_mode {
                     let _context = std::env::current_dir()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_else(|_| "Unknown directory".to_string());
@@ -313,6 +322,90 @@ async fn handle_help_mode(key: KeyEvent, app: &mut AppState) -> bool {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc | KeyCode::Char('?') => {
             app.mode = AppMode::Normal;
+        }
+        _ => {}
+    }
+    false
+}
+
+async fn handle_visual_mode(key: KeyEvent, app: &mut AppState) -> bool {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.clear_visual_selection();
+        }
+        KeyCode::Char('y') => {
+            // Copy selection to clipboard
+            match app.copy_selection_to_clipboard() {
+                Ok(_) => {
+                    app.set_status_message("Copied to clipboard".to_string());
+                }
+                Err(e) => {
+                    app.set_status_message(format!("Copy failed: {}", e));
+                }
+            }
+            app.clear_visual_selection();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let selected = app.chat_list_state.selected();
+            let chat_width = (app.terminal_width * 3) / 4;
+            let total_lines = app.calculate_total_message_lines(chat_width);
+            
+            if let Some(i) = selected {
+                if i < total_lines.saturating_sub(1) {
+                    let new_pos = i + 1;
+                    app.chat_list_state.select(Some(new_pos));
+                    app.update_visual_selection(new_pos);
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            let selected = app.chat_list_state.selected();
+            if let Some(i) = selected {
+                if i > 0 {
+                    let new_pos = i - 1;
+                    app.chat_list_state.select(Some(new_pos));
+                    app.update_visual_selection(new_pos);
+                }
+            }
+        }
+        KeyCode::Char('g') => {
+            // Go to top
+            app.chat_list_state.select(Some(0));
+            app.update_visual_selection(0);
+        }
+        KeyCode::Char('G') => {
+            // Go to bottom
+            let chat_width = (app.terminal_width * 3) / 4;
+            let total_lines = app.calculate_total_message_lines(chat_width);
+            if total_lines > 0 {
+                let bottom = total_lines - 1;
+                app.chat_list_state.select(Some(bottom));
+                app.update_visual_selection(bottom);
+            }
+        }
+        KeyCode::PageUp => {
+            let selected = app.chat_list_state.selected();
+            let chat_height = app.terminal_height.saturating_sub(6);
+            let page_size = chat_height as usize;
+            
+            if let Some(i) = selected {
+                let new_index = i.saturating_sub(page_size);
+                app.chat_list_state.select(Some(new_index));
+                app.update_visual_selection(new_index);
+            }
+        }
+        KeyCode::PageDown => {
+            let selected = app.chat_list_state.selected();
+            let chat_height = app.terminal_height.saturating_sub(6);
+            let page_size = chat_height as usize;
+            let chat_width = (app.terminal_width * 3) / 4;
+            let total_lines = app.calculate_total_message_lines(chat_width);
+            
+            if let Some(i) = selected {
+                let new_index = std::cmp::min(i + page_size, total_lines.saturating_sub(1));
+                app.chat_list_state.select(Some(new_index));
+                app.update_visual_selection(new_index);
+            }
         }
         _ => {}
     }

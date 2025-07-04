@@ -10,6 +10,7 @@ use ratatui::{
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
 
+#[allow(dead_code)]
 pub fn get_chat_area(f_area: Rect) -> Rect {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -28,7 +29,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
-        .split(f.size());
+        .split(f.area());
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -55,7 +56,12 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     // Create the list items first, before borrowing app mutably
     let messages = app.current_messages().clone();
     let theme = app.config.theme.clone();
-    let chat_list_items = render_messages_as_list(&messages, left_chunks[0].width, &theme);
+    let visual_selection = if app.mode == AppMode::Visual {
+        app.visual_start.zip(app.visual_end).map(|(start, end)| (start.min(end), start.max(end)))
+    } else {
+        None
+    };
+    let chat_list_items = render_messages_as_list(&messages, left_chunks[0].width, &theme, visual_selection);
     
     let chat_list = List::new(chat_list_items)
         .block(
@@ -72,6 +78,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         AppMode::Normal => "-- NORMAL --",
         AppMode::Insert => "-- INSERT --",
         AppMode::Command => "-- COMMAND --",
+        AppMode::Visual => "-- VISUAL --",
         AppMode::ModelSelection => "-- MODEL SELECTION --",
         AppMode::SessionSelection => "-- SESSION SELECTION --",
         AppMode::Agent => "-- AGENT --",
@@ -93,18 +100,23 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .block(Block::default().borders(Borders::ALL).title(input_title));
     f.render_widget(input_paragraph, left_chunks[1]);
 
-    let status_bar_text = match app.mode {
-        AppMode::Normal => format!(
-            "Model: {} | ? for help | i:insert | :q quit | :n new | :m models | :s sessions",
-            app.current_model
-        ),
-        AppMode::Insert => format!(
-            "Model: {} | ESC to normal mode | Enter to send",
-            app.current_model
-        ),
-        AppMode::Command => "Type command and press Enter".to_string(),
-        AppMode::SessionSelection => "SESSION SELECTION: j/k to navigate | Enter to select | d to delete | ESC to exit".to_string(),
-        _ => format!("Model: {} | ESC to normal mode", app.current_model),
+    let status_bar_text = if let Some(ref msg) = app.status_message {
+        msg.clone()
+    } else {
+        match app.mode {
+            AppMode::Normal => format!(
+                "Model: {} | ? for help | i:insert | v:visual | :q quit | :n new | :m models | :s sessions",
+                app.current_model
+            ),
+            AppMode::Insert => format!(
+                "Model: {} | ESC to normal mode | Enter to send",
+                app.current_model
+            ),
+            AppMode::Command => "Type command and press Enter".to_string(),
+            AppMode::Visual => "VISUAL: j/k to extend selection | y to copy | ESC to exit".to_string(),
+            AppMode::SessionSelection => "SESSION SELECTION: j/k to navigate | Enter to select | d to delete | ESC to exit".to_string(),
+            _ => format!("Model: {} | ESC to normal mode", app.current_model),
+        }
     };
     let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
     f.render_widget(status_bar, left_chunks[2]);
@@ -113,17 +125,17 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     match app.mode {
         AppMode::Insert => {
             if !app.is_loading {
-                f.set_cursor(
+                f.set_cursor_position((
                     left_chunks[1].x + app.input.width() as u16 + 1,
                     left_chunks[1].y + 1,
-                );
+                ));
             }
         }
         AppMode::Command => {
-            f.set_cursor(
+            f.set_cursor_position((
                 left_chunks[1].x + app.vim_command.width() as u16 + 2, // +2 for ":"
                 left_chunks[1].y + 1,
-            );
+            ));
         }
         _ => {}
     }
@@ -176,7 +188,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
 }
 
 fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
-    let popup_area = centered_rect(60, 50, f.size());
+    let popup_area = centered_rect(60, 50, f.area());
     let block = Block::default()
         .title("Select a Model (Enter to confirm, Esc/q to cancel)")
         .borders(Borders::ALL)
@@ -241,6 +253,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+#[allow(dead_code)]
 fn render_messages<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme) -> Text<'a> {
     let mut lines = Vec::new();
     for message in messages {
@@ -273,8 +286,9 @@ fn render_messages<'a>(messages: &'a [models::Message], width: u16, theme: &crat
     Text::from(lines)
 }
 
-fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme) -> Vec<ListItem<'a>> {
+fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme, visual_selection: Option<(usize, usize)>) -> Vec<ListItem<'a>> {
     let mut list_items = Vec::new();
+    let mut line_index = 0;
     
     for message in messages {
         let style = match message.role {
@@ -289,26 +303,50 @@ fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, them
         let wrapped_content = wrap(&message.content, (width as usize).saturating_sub(6));
         
         for (i, line_content) in wrapped_content.iter().enumerate() {
+            // Check if this line is within the visual selection
+            let line_style = if let Some((start, end)) = visual_selection {
+                if line_index >= start && line_index <= end {
+                    style.bg(Color::Blue).add_modifier(Modifier::REVERSED)
+                } else {
+                    style
+                }
+            } else {
+                style
+            };
+            
             if i == 0 {
                 // First line with prefix
                 let line = Line::from(vec![
-                    Span::styled(prefix, style.add_modifier(Modifier::BOLD)),
-                    Span::styled(line_content.to_string(), style),
+                    Span::styled(prefix, line_style.add_modifier(Modifier::BOLD)),
+                    Span::styled(line_content.to_string(), line_style),
                 ]);
                 list_items.push(ListItem::new(line));
             } else {
                 // Continuation lines with indentation
                 let line = Line::from(vec![
                     Span::raw("    "),
-                    Span::styled(line_content.to_string(), style),
+                    Span::styled(line_content.to_string(), line_style),
                 ]);
                 list_items.push(ListItem::new(line));
             }
+            line_index += 1;
         }
         
         // Add empty line after each message if content is not empty
         if !message.content.is_empty() {
-            list_items.push(ListItem::new(Line::from("")));
+            // Check if the empty line is within the visual selection
+            let empty_line_style = if let Some((start, end)) = visual_selection {
+                if line_index >= start && line_index <= end {
+                    Style::default().bg(Color::Blue).add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                }
+            } else {
+                Style::default()
+            };
+            
+            list_items.push(ListItem::new(Line::from("")).style(empty_line_style));
+            line_index += 1;
         }
     }
     
@@ -333,6 +371,7 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
         "NORMAL MODE KEYS:",
         "  i              - Enter insert mode",
         "  o/O            - Enter insert mode (clear input)",
+        "  v              - Enter visual mode (select text)",
         "  :              - Enter command mode",
         "  ?              - Show this help",
         "  q              - Quick quit",
@@ -346,6 +385,14 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
         "  ESC            - Return to normal mode",
         "  Enter          - Send message",
         "  Backspace      - Delete character",
+        "",
+        "VISUAL MODE KEYS:",
+        "  j/k or ↑/↓     - Extend selection",
+        "  g              - Go to top",
+        "  G              - Go to bottom",
+        "  PgUp/PgDn      - Page up/down",
+        "  y              - Copy selection to clipboard",
+        "  ESC            - Return to normal mode",
         "",
         "COMMAND MODE COMMANDS:",
         "  :q             - Quit application",

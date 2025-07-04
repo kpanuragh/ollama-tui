@@ -11,6 +11,7 @@ pub enum AppMode {
     Normal,         // Vim normal mode
     Insert,         // Vim insert mode for typing messages
     Command,        // Vim command mode
+    Visual,         // Vim visual mode for text selection
     ModelSelection,
     SessionSelection,
     Agent,          // New agent mode
@@ -20,6 +21,9 @@ pub enum AppMode {
 pub struct AppState {
     pub mode: AppMode,
     pub vim_command: String,        // Command being typed in command mode
+    pub visual_start: Option<usize>, // Start line of visual selection
+    pub visual_end: Option<usize>,   // End line of visual selection
+    pub status_message: Option<String>, // Temporary status message
     pub sessions: Vec<models::ChatSession>,
     pub current_session_index: usize,
     pub session_list_state: ListState,
@@ -30,6 +34,7 @@ pub struct AppState {
     pub is_loading: bool,
     pub is_fetching_models: bool,
     pub scroll_offset: u16,
+    #[allow(dead_code)]
     pub target_scroll_offset: u16, // Target scroll position for smooth scrolling
     pub auto_scroll: bool,
     pub terminal_width: u16,
@@ -43,6 +48,7 @@ pub struct AppState {
     pub agent_mode: bool,
     pub pending_commands: Vec<models::AgentCommand>,
     pub command_approval_index: Option<usize>,
+    #[allow(dead_code)]
     pub agent_context: String,
 }
 
@@ -99,6 +105,9 @@ impl AppState {
         Ok(Self {
             mode: AppMode::Normal,
             vim_command: String::new(),
+            visual_start: None,
+            visual_end: None,
+            status_message: None, // Initialize status message
             sessions,
             current_session_index,
             session_list_state,
@@ -271,6 +280,7 @@ impl AppState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn trigger_auto_scroll_aggressive(&mut self) {
         if self.auto_scroll {
             let chat_width = (self.terminal_width * 3) / 4;
@@ -394,9 +404,186 @@ impl AppState {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn should_fetch_models(&self) -> bool {
         self.mode == AppMode::ModelSelection && self.is_fetching_models && !self.available_models.is_empty() == false
     }
 
-}
+    pub fn start_visual_selection(&mut self) {
+        if let Some(selected) = self.chat_list_state.selected() {
+            self.visual_start = Some(selected);
+            self.visual_end = Some(selected);
+            self.mode = AppMode::Visual;
+        }
+    }
 
+    pub fn update_visual_selection(&mut self, line: usize) {
+        if self.visual_start.is_some() {
+            self.visual_end = Some(line);
+        }
+    }
+
+    pub fn get_selected_text(&self) -> String {
+        if let (Some(start), Some(end)) = (self.visual_start, self.visual_end) {
+            let start_line = std::cmp::min(start, end);
+            let end_line = std::cmp::max(start, end);
+            
+            let chat_width = (self.terminal_width * 3) / 4;
+            let mut selected_text = String::new();
+            let mut line_index = 0;
+            
+            for message in self.current_messages() {
+                let prefix = match message.role {
+                    models::Role::User => "You: ",
+                    models::Role::Assistant => "AI: ",
+                };
+                
+                let wrapped_content = wrap(&message.content, (chat_width as usize).saturating_sub(6));
+                
+                for (i, line_content) in wrapped_content.iter().enumerate() {
+                    if line_index >= start_line && line_index <= end_line {
+                        if i == 0 {
+                            selected_text.push_str(&format!("{}{}", prefix, line_content));
+                        } else {
+                            selected_text.push_str(&format!("     {}", line_content));
+                        }
+                        selected_text.push('\n');
+                    }
+                    line_index += 1;
+                }
+                
+                // Add empty line after each message if content is not empty
+                if !message.content.is_empty() {
+                    if line_index >= start_line && line_index <= end_line {
+                        selected_text.push('\n');
+                    }
+                    line_index += 1;
+                }
+            }
+            
+            selected_text.trim().to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn copy_selection_to_clipboard(&self) -> Result<()> {
+        let selected_text = self.get_selected_text();
+        if selected_text.is_empty() {
+            return Ok(());
+        }
+
+        // Try to copy to clipboard using external commands
+        #[cfg(target_os = "linux")]
+        {
+            use std::process::{Command, Stdio};
+            use std::io::Write;
+            
+            // Try xclip first
+            let xclip_result = Command::new("xclip")
+                .arg("-selection")
+                .arg("clipboard")
+                .stdin(Stdio::piped())
+                .spawn();
+            
+            if let Ok(mut child) = xclip_result {
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = stdin.write_all(selected_text.as_bytes());
+                    let _ = stdin.flush();
+                }
+                drop(child.stdin.take()); // Close stdin
+                let _ = child.wait();
+                return Ok(());
+            }
+            
+            // Fallback to xsel
+            let xsel_result = Command::new("xsel")
+                .arg("--clipboard")
+                .arg("--input")
+                .stdin(Stdio::piped())
+                .spawn();
+            
+            if let Ok(mut child) = xsel_result {
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = stdin.write_all(selected_text.as_bytes());
+                    let _ = stdin.flush();
+                }
+                drop(child.stdin.take()); // Close stdin
+                let _ = child.wait();
+                return Ok(());
+            }
+            
+            // Last resort: try wl-copy for Wayland
+            let wl_copy_result = Command::new("wl-copy")
+                .stdin(Stdio::piped())
+                .spawn();
+            
+            if let Ok(mut child) = wl_copy_result {
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = stdin.write_all(selected_text.as_bytes());
+                    let _ = stdin.flush();
+                }
+                drop(child.stdin.take()); // Close stdin
+                let _ = child.wait();
+                return Ok(());
+            }
+            
+            return Err(anyhow!("No clipboard utility found (tried xclip, xsel, wl-copy)"));
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::{Command, Stdio};
+            use std::io::Write;
+            
+            let mut child = Command::new("pbcopy")
+                .stdin(Stdio::piped())
+                .spawn()?;
+            
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(selected_text.as_bytes())?;
+                stdin.flush()?;
+            }
+            drop(child.stdin.take()); // Close stdin
+            child.wait()?;
+            return Ok(());
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::{Command, Stdio};
+            use std::io::Write;
+            
+            let mut child = Command::new("clip")
+                .stdin(Stdio::piped())
+                .spawn()?;
+            
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(selected_text.as_bytes())?;
+                stdin.flush()?;
+            }
+            drop(child.stdin.take()); // Close stdin
+            child.wait()?;
+            return Ok(());
+        }
+        
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            return Err(anyhow!("Clipboard not supported on this platform"));
+        }
+    }
+
+    pub fn clear_visual_selection(&mut self) {
+        self.visual_start = None;
+        self.visual_end = None;
+        self.mode = AppMode::Normal;
+    }
+
+    pub fn set_status_message(&mut self, message: String) {
+        self.status_message = Some(message);
+    }
+
+    pub fn clear_status_message(&mut self) {
+        self.status_message = None;
+    }
+}
