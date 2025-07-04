@@ -11,6 +11,9 @@ pub enum AppEvent {
     OllamaChunk(Result<String, String>),
     OllamaDone,
     Models(Result<Vec<String>, String>),
+    AgentCommands(Vec<models::AgentCommand>),
+    CommandExecuted(usize, Result<String, String>),
+    Tick,
 }
 
 pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
@@ -47,6 +50,17 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                 }
                 return false;
             }
+            KeyCode::Char('a') => {
+                app.mode = AppMode::Agent;
+                app.agent_mode = true;
+                return false;
+            }
+            KeyCode::Char('s') => {
+                // Toggle auto-scroll
+                app.auto_scroll = !app.auto_scroll;
+                // Auto-scroll will be handled by the tick event with proper dimensions
+                return false;
+            }
             _ => {}
         }
     }
@@ -56,6 +70,72 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
             KeyCode::Char(c) => app.input.push(c),
             KeyCode::Backspace => {
                 app.input.pop();
+            }
+            KeyCode::Up => {
+                // Scroll up in chat list
+                app.auto_scroll = false; // Disable auto-scroll when manually scrolling
+                let selected = app.chat_list_state.selected();
+                if let Some(i) = selected {
+                    if i > 0 {
+                        app.chat_list_state.select(Some(i - 1));
+                    }
+                } else {
+                    // If nothing selected, start from the last item
+                    let chat_width = (app.terminal_width * 3) / 4;
+                    let total_lines = app.calculate_total_message_lines(chat_width);
+                    if total_lines > 0 {
+                        app.chat_list_state.select(Some(total_lines - 1));
+                    }
+                }
+            }
+            KeyCode::Down => {
+                // Scroll down in chat list
+                app.auto_scroll = false; // Disable auto-scroll when manually scrolling
+                let selected = app.chat_list_state.selected();
+                let chat_width = (app.terminal_width * 3) / 4;
+                let total_lines = app.calculate_total_message_lines(chat_width);
+                
+                if let Some(i) = selected {
+                    if i < total_lines.saturating_sub(1) {
+                        app.chat_list_state.select(Some(i + 1));
+                    }
+                } else if total_lines > 0 {
+                    app.chat_list_state.select(Some(0));
+                }
+            }
+            KeyCode::PageUp => {
+                // Page up in chat list
+                app.auto_scroll = false;
+                let selected = app.chat_list_state.selected();
+                let chat_height = app.terminal_height.saturating_sub(6);
+                let page_size = chat_height as usize;
+                
+                if let Some(i) = selected {
+                    let new_index = i.saturating_sub(page_size);
+                    app.chat_list_state.select(Some(new_index));
+                } else {
+                    let chat_width = (app.terminal_width * 3) / 4;
+                    let total_lines = app.calculate_total_message_lines(chat_width);
+                    if total_lines > 0 {
+                        app.chat_list_state.select(Some(total_lines - 1));
+                    }
+                }
+            }
+            KeyCode::PageDown => {
+                // Page down in chat list
+                app.auto_scroll = false;
+                let selected = app.chat_list_state.selected();
+                let chat_height = app.terminal_height.saturating_sub(6);
+                let page_size = chat_height as usize;
+                let chat_width = (app.terminal_width * 3) / 4;
+                let total_lines = app.calculate_total_message_lines(chat_width);
+                
+                if let Some(i) = selected {
+                    let new_index = std::cmp::min(i + page_size, total_lines.saturating_sub(1));
+                    app.chat_list_state.select(Some(new_index));
+                } else if total_lines > 0 {
+                    app.chat_list_state.select(Some(0));
+                }
             }
             KeyCode::Enter => {
                 if !app.input.is_empty() && !app.is_loading {
@@ -70,7 +150,9 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                     });
 
                     app.is_loading = true;
-                    app.scroll_offset = 0;
+                    app.auto_scroll = true;
+                    // Trigger immediate auto-scroll when new messages are added
+                    app.trigger_auto_scroll();
 
                     let client = app.http_client.clone();
                     let model = app.current_model.clone();
@@ -94,8 +176,6 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
                 }
             }
             KeyCode::Tab => app.mode = AppMode::SessionSelection,
-            KeyCode::Up => app.scroll_offset = app.scroll_offset.saturating_add(1),
-            KeyCode::Down => app.scroll_offset = app.scroll_offset.saturating_sub(1),
             _ => {}
         },
         AppMode::ModelSelection => match key.code {
@@ -115,6 +195,131 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
             KeyCode::Down => app.next_session(),
             KeyCode::Enter => {
                 app.switch_to_selected_session().ok();
+            }
+            KeyCode::Delete | KeyCode::Char('d') => {
+                app.delete_current_session().ok();
+            }
+            _ => {}
+        },
+        AppMode::Agent => match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => {
+                app.mode = AppMode::Normal;
+                app.agent_mode = false;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            }
+            KeyCode::Enter => {
+                if !app.input.trim().is_empty() && !app.is_loading {
+                    let input_content = app.input.clone();
+                    
+                    // Add user message with agent prompt
+                    let user_message = if app.agent_mode {
+                        let _context = std::env::current_dir()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| "Unknown directory".to_string());
+                        
+                        // TODO: Create agent prompt when agent module is implemented
+                        // crate::agent::Agent::create_agent_prompt(&input_content, &context)
+                        format!("Agent mode: {}", input_content)
+                    } else {
+                        input_content.clone()
+                    };
+
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::User,
+                        content: input_content,
+                    });
+                    app.input.clear();
+
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: String::new(),
+                    });
+
+                    app.is_loading = true;
+                    app.auto_scroll = true;
+                    // Trigger immediate auto-scroll when new messages are added
+                    app.trigger_auto_scroll();
+
+                    let client = app.http_client.clone();
+                    let model = app.current_model.clone();
+                    let base_url = app.ollama_base_url.clone();
+                    let auth_config = app.config.auth_method.clone();
+                    let auth_enabled = app.config.auth_enabled;
+                    let tx_clone = tx.clone();
+
+                    // Create messages with agent prompt
+                    let mut messages = app.current_messages().clone();
+                    if let Some(last_user_msg) = messages.iter_mut().rev().find(|m| m.role == models::Role::User) {
+                        last_user_msg.content = user_message;
+                    }
+
+                    tokio::spawn(async move {
+                        ollama::stream_chat_request(
+                            &client,
+                            &base_url,
+                            &model,
+                            &messages,
+                            auth_enabled,
+                            auth_config.as_ref(),
+                            tx_clone,
+                        )
+                        .await;
+                    });
+                }
+            }
+            KeyCode::Char('y') => {
+                // Approve current pending command
+                if let Some(index) = app.command_approval_index {
+                    if let Some(cmd) = app.pending_commands.get_mut(index) {
+                        if !cmd.executed {
+                            cmd.approved = true;
+                            let _command = cmd.command.clone();
+                            let tx_clone = tx.clone();
+                            
+                            tokio::spawn(async move {
+                                // TODO: Execute command when agent module is implemented
+                                // let result = crate::agent::Agent::execute_command(&command).await;
+                                // tx_clone.send(AppEvent::CommandExecuted(index, result.map_err(|e| e.to_string()))).await.ok();
+                                let result = Ok("Command execution not implemented yet".to_string());
+                                tx_clone.send(AppEvent::CommandExecuted(index, result)).await.ok();
+                            });
+                            
+                            // Move to next command
+                            if index + 1 < app.pending_commands.len() {
+                                app.command_approval_index = Some(index + 1);
+                            } else {
+                                app.command_approval_index = None;
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('n') => {
+                // Reject current pending command and move to next
+                if let Some(index) = app.command_approval_index {
+                    if index + 1 < app.pending_commands.len() {
+                        app.command_approval_index = Some(index + 1);
+                    } else {
+                        app.command_approval_index = None;
+                    }
+                }
+            }
+            KeyCode::Up => {
+                app.auto_scroll = false; // Disable auto-scroll when user manually scrolls
+                app.target_scroll_offset = app.target_scroll_offset.saturating_add(1);
+            },
+            KeyCode::Down => {
+                app.auto_scroll = false; // Disable auto-scroll when user manually scrolls
+                app.target_scroll_offset = app.target_scroll_offset.saturating_sub(1);
+                // If user scrolls to bottom (offset 0), re-enable auto-scroll
+                if app.target_scroll_offset == 0 {
+                    app.auto_scroll = true;
+                }
+            },
+            KeyCode::Char(c) => app.input.push(c),
+            KeyCode::Backspace => {
+                app.input.pop();
             }
             _ => {}
         },

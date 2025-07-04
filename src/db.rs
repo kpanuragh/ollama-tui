@@ -131,3 +131,19 @@ fn load_messages_for_session(conn: &Connection, session_id: i64) -> Result<Vec<M
     Ok(messages)
 }
 
+pub fn delete_session(conn: &Connection, session_id: i64) -> Result<()> {
+    // Delete all messages for this session first
+    conn.execute(
+        "DELETE FROM messages WHERE session_id = ?1",
+        params![session_id],
+    )?;
+
+    // Delete the session itself
+    conn.execute(
+        "DELETE FROM sessions WHERE id = ?1",
+        params![session_id],
+    )?;
+
+    Ok(())
+}
+

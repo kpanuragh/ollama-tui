@@ -170,3 +170,24 @@ pub struct StreamChatResponse {
     pub done: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct AgentCommand {
+    pub command: String,
+    pub approved: bool,
+    pub executed: bool,
+    pub output: Option<String>,
+    pub error: Option<String>,
+}
+
+impl AgentCommand {
+    pub fn new(command: String) -> Self {
+        Self {
+            command,
+            approved: false,
+            executed: false,
+            output: None,
+            error: None,
+        }
+    }
+}
+

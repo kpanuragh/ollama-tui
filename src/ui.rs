@@ -5,9 +5,23 @@ use crate::{
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    layout::Rect,
 };
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
+
+pub fn get_chat_area(f_area: Rect) -> Rect {
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+        .split(f_area);
+
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(3), Constraint::Length(1)].as_ref())
+        .split(main_chunks[0]);
+    left_chunks[0]
+}
 
 pub fn ui(f: &mut Frame, app: &mut AppState) {
 
@@ -24,17 +38,21 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     let chat_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.chat_border_color));
     let sessions_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color));
 
-    let chat_messages = render_messages(app.current_messages(), left_chunks[0].width, &app.config.theme);
-    let chat_paragraph = Paragraph::new(chat_messages)
+    // Create the list items first, before borrowing app mutably
+    let messages = app.current_messages().clone();
+    let theme = app.config.theme.clone();
+    let chat_list_items = render_messages_as_list(&messages, left_chunks[0].width, &theme);
+    
+    let chat_list = List::new(chat_list_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Chat History")
+                .title("Chat History (↑↓ to scroll, PgUp/PgDn to page)")
                 .border_style(chat_border_style),
         )
-        .wrap(Wrap { trim: false })
-        .scroll((app.scroll_offset, 0));
-    f.render_widget(chat_paragraph, left_chunks[0]);
+        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::DIM))
+        .highlight_symbol("  ");  // Less intrusive highlight
+    f.render_stateful_widget(chat_list, left_chunks[0], &mut app.chat_list_state);
 
     let input_text = if app.is_loading {
         "Thinking...".to_string()
@@ -46,7 +64,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     f.render_widget(input_paragraph, left_chunks[1]);
 
     let status_bar_text = format!(
-        "Model: {} | Ctrl+D: Clear | Ctrl+L: Models | Tab: Sessions | Ctrl+C: Quit",
+        "Model: {} | Ctrl+N: New Session | Ctrl+D: Clear | Ctrl+L: Models | Tab: Switch Session | Ctrl+C: Quit",
         app.current_model
     );
     let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
@@ -78,7 +96,9 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Sessions (Ctrl+N)")
+                .title(format!("Sessions ({}/{}) [Ctrl+N: New | Tab: Switch | D: Delete]", 
+                    app.current_session_index + 1, 
+                    app.sessions.len()))
                 .border_style(sessions_border_style),
         )
         .highlight_style(Style::default()
@@ -189,5 +209,47 @@ fn render_messages<'a>(messages: &'a [models::Message], width: u16, theme: &crat
         }
     }
     Text::from(lines)
+}
+
+fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme) -> Vec<ListItem<'a>> {
+    let mut list_items = Vec::new();
+    
+    for message in messages {
+        let style = match message.role {
+            models::Role::User => Style::default().fg(theme.parse_color(&theme.user_message_color)),
+            models::Role::Assistant => Style::default().fg(theme.parse_color(&theme.assistant_message_color)),
+        };
+        let prefix = match message.role {
+            models::Role::User => "You: ",
+            models::Role::Assistant => "AI: ",
+        };
+        
+        let wrapped_content = wrap(&message.content, (width as usize).saturating_sub(6));
+        
+        for (i, line_content) in wrapped_content.iter().enumerate() {
+            if i == 0 {
+                // First line with prefix
+                let line = Line::from(vec![
+                    Span::styled(prefix, style.add_modifier(Modifier::BOLD)),
+                    Span::styled(line_content.to_string(), style),
+                ]);
+                list_items.push(ListItem::new(line));
+            } else {
+                // Continuation lines with indentation
+                let line = Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(line_content.to_string(), style),
+                ]);
+                list_items.push(ListItem::new(line));
+            }
+        }
+        
+        // Add empty line after each message if content is not empty
+        if !message.content.is_empty() {
+            list_items.push(ListItem::new(Line::from("")));
+        }
+    }
+    
+    list_items
 }
 
