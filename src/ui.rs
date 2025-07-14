@@ -81,7 +81,13 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         AppMode::Visual => "-- VISUAL --",
         AppMode::ModelSelection => "-- MODEL SELECTION --",
         AppMode::SessionSelection => "-- SESSION SELECTION --",
-        AppMode::Agent => "-- AGENT --",
+        AppMode::Agent => {
+            if app.has_pending_tool_calls() {
+                "-- AGENT (Tool Approval Required) --"
+            } else {
+                "-- AGENT --"
+            }
+        },
         AppMode::Help => "-- HELP --",
     };
 
@@ -105,7 +111,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     } else {
         match app.mode {
             AppMode::Normal => format!(
-                "Model: {} | ? for help | i:insert | v:visual | :q quit | :n new | :m models | :s sessions",
+                "Model: {} | ? for help | i:insert | v:visual | :q quit | :n new | :m models | :s sessions | :a agent",
                 app.current_model
             ),
             AppMode::Insert => format!(
@@ -115,6 +121,17 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
             AppMode::Command => "Type command and press Enter".to_string(),
             AppMode::Visual => "VISUAL: j/k to extend selection | y to copy | ESC to exit".to_string(),
             AppMode::SessionSelection => "SESSION SELECTION: j/k to navigate | Enter to select | d to delete | ESC to exit".to_string(),
+            AppMode::Agent => {
+                if app.has_pending_tool_calls() {
+                    if let Some((tool_name, _)) = app.get_current_tool_call() {
+                        format!("AGENT: Tool '{}' requires approval | Y to approve | N to reject | ESC to exit", tool_name)
+                    } else {
+                        "AGENT: Processing tool calls...".to_string()
+                    }
+                } else {
+                    format!("AGENT: Model: {} | AI has system access | ESC to exit", app.current_model)
+                }
+            },
             _ => format!("Model: {} | ESC to normal mode", app.current_model),
         }
     };
@@ -184,6 +201,10 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     
     if app.mode == AppMode::Help {
         render_help_popup(f, app);
+    }
+    
+    if app.mode == AppMode::Agent && app.has_pending_tool_calls() {
+        render_tool_approval_popup(f, app);
     }
 }
 
@@ -421,5 +442,44 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
 
     f.render_widget(Clear, popup_area);
     f.render_widget(help_paragraph, popup_area);
+}
+
+fn render_tool_approval_popup(f: &mut Frame, app: &mut AppState) {
+    let popup_area = centered_rect(80, 60, f.area());
+    
+    if let Some((tool_name, args)) = app.get_current_tool_call() {
+        let block = Block::default()
+            .title("Tool Approval Required")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
+        
+        // Format the tool call for display
+        let mut content = vec![
+            format!("Tool: {}", tool_name),
+            "".to_string(),
+            "Arguments:".to_string(),
+        ];
+        
+        for (key, value) in args {
+            content.push(format!("  {}: {}", key, value));
+        }
+        
+        content.extend(vec![
+            "".to_string(),
+            "This tool wants to perform the above action.".to_string(),
+            "".to_string(),
+            "Y/y - Approve and execute".to_string(),
+            "N/n - Reject this tool call".to_string(),
+            "ESC - Exit agent mode".to_string(),
+        ]);
+        
+        let approval_paragraph = Paragraph::new(content.join("\n"))
+            .block(block)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::White));
+        
+        f.render_widget(Clear, popup_area);
+        f.render_widget(approval_paragraph, popup_area);
+    }
 }
 

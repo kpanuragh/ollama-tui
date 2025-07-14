@@ -159,15 +159,52 @@ async fn main() -> Result<()> {
                     app_state.trigger_auto_scroll();
                 }
 
-                // Parse commands if in agent mode
+                // Parse tool calls if in agent mode
                 if app_state.agent_mode {
                     if let Some(last_message) = app_state.current_messages().last() {
                         if last_message.role == models::Role::Assistant {
-                            // TODO: Parse commands from response when agent module is implemented
-                            // let commands = agent::Agent::parse_commands_from_response(&last_message.content);
-                            // if !commands.is_empty() {
-                            //     tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
-                            // }
+                            let tool_calls = app_state.parse_agent_response(&last_message.content);
+                            if !tool_calls.is_empty() {
+                                // Filter tool calls that require approval
+                                let mut needs_approval = Vec::new();
+                                let mut auto_execute = Vec::new();
+                                
+                                for (tool_name, args) in tool_calls {
+                                    if app_state.tool_requires_approval(&tool_name) {
+                                        needs_approval.push((tool_name, args));
+                                    } else {
+                                        auto_execute.push((tool_name, args));
+                                    }
+                                }
+                                
+                                // Auto-execute safe tools
+                                for (tool_name, args) in auto_execute {
+                                    let tx_clone = tx.clone();
+                                    let agent = app_state.agent.clone();
+                                    tokio::spawn(async move {
+                                        let result = agent.execute_tool(&tool_name, &args).await;
+                                        match result {
+                                            Ok(tool_result) => {
+                                                let _ = tx_clone.send(events::AppEvent::ToolExecutionResult(tool_name, tool_result)).await;
+                                            }
+                                            Err(e) => {
+                                                let tool_result = agent::ToolResult {
+                                                    success: false,
+                                                    output: String::new(),
+                                                    error: Some(format!("Tool execution failed: {}", e)),
+                                                };
+                                                let _ = tx_clone.send(events::AppEvent::ToolExecutionResult(tool_name, tool_result)).await;
+                                            }
+                                        }
+                                    });
+                                }
+                                
+                                // Add tools that need approval to pending list
+                                if !needs_approval.is_empty() {
+                                    app_state.add_tool_calls(needs_approval);
+                                    app_state.set_status_message(format!("Tool approval required: {} pending", app_state.pending_tool_calls.len()));
+                                }
+                            }
                         }
                     }
                 }
@@ -204,34 +241,26 @@ async fn main() -> Result<()> {
                     content: format!("Error fetching models: {}. Is Ollama running?", e),
                 });
             }
-            Some(events::AppEvent::AgentCommands(commands)) => {
-                app_state.pending_commands = commands;
-                if !app_state.pending_commands.is_empty() {
-                    app_state.command_approval_index = Some(0);
-                }
+            Some(events::AppEvent::ToolExecutionResult(tool_name, result)) => {
+                let result_message = if result.success {
+                    format!("Tool '{}' executed successfully:\n{}", tool_name, result.output)
+                } else {
+                    format!("Tool '{}' failed: {}", tool_name, result.error.unwrap_or_else(|| "Unknown error".to_string()))
+                };
+                
+                // Add tool execution result to chat
+                app_state.current_messages_mut().push(models::Message {
+                    role: models::Role::Assistant,
+                    content: result_message,
+                });
+                
+                // Auto-scroll to show the result
+                app_state.auto_scroll = true;
+                app_state.trigger_auto_scroll();
             }
-            Some(events::AppEvent::CommandExecuted(index, result)) => {
-                if let Some(cmd) = app_state.pending_commands.get_mut(index) {
-                    cmd.executed = true;
-                    let cmd_command = cmd.command.clone();
-                    match result {
-                        Ok(output) => {
-                            cmd.output = Some(output.clone());
-                            // Add command output to chat
-                            app_state.current_messages_mut().push(models::Message {
-                                role: models::Role::Assistant,
-                                content: format!("Command executed successfully:\n```\n{}\n```\n\nOutput:\n```\n{}\n```", cmd_command, output),
-                            });
-                        }
-                        Err(error) => {
-                            cmd.error = Some(error.clone());
-                            app_state.current_messages_mut().push(models::Message {
-                                role: models::Role::Assistant,
-                                content: format!("Command failed:\n```\n{}\n```\n\nError:\n```\n{}\n```", cmd_command, error),
-                            });
-                        }
-                    }
-                }
+            Some(events::AppEvent::AgentCommands(commands)) => {
+                // Handle agent commands (currently unused but needed for pattern matching)
+                eprintln!("Received agent commands: {:?}", commands);
             }
             None => break,
         }

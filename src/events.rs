@@ -1,4 +1,5 @@
 use crate::{
+    agent,
     app::{AppMode, AppState},
     models, ollama,
 };
@@ -13,8 +14,7 @@ pub enum AppEvent {
     Models(Result<Vec<String>, String>),
     #[allow(dead_code)]
     AgentCommands(Vec<models::AgentCommand>),
-    #[allow(dead_code)]
-    CommandExecuted(usize, Result<String, String>),
+    ToolExecutionResult(String, agent::ToolResult),
     Tick,
 }
 
@@ -54,6 +54,9 @@ async fn handle_normal_mode(key: KeyEvent, app: &mut AppState, _tx: mpsc::Sender
         }
         KeyCode::Char('?') => {
             app.mode = AppMode::Help;
+        }
+        KeyCode::Char('A') => {
+            app.enter_agent_mode();
         }
         KeyCode::Char('v') => {
             app.start_visual_selection();
@@ -252,33 +255,71 @@ async fn handle_session_selection_mode(key: KeyEvent, app: &mut AppState) -> boo
 }
 
 async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+    // Handle tool approval workflow first
+    if app.has_pending_tool_calls() {
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // Approve current tool call
+                if let Some((tool_name, args)) = app.approve_current_tool_call() {
+                    let app_tx = tx.clone();
+                    let agent = app.agent.clone();
+                    
+                    tokio::spawn(async move {
+                        let result = agent.execute_tool(&tool_name, &args).await;
+                        match result {
+                            Ok(tool_result) => {
+                                let _ = app_tx.send(AppEvent::ToolExecutionResult(tool_name, tool_result)).await;
+                            }
+                            Err(e) => {
+                                let tool_result = agent::ToolResult {
+                                    success: false,
+                                    output: String::new(),
+                                    error: Some(format!("Tool execution failed: {}", e)),
+                                };
+                                let _ = app_tx.send(AppEvent::ToolExecutionResult(tool_name, tool_result)).await;
+                            }
+                        }
+                    });
+                }
+                return false;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                // Reject current tool call
+                app.reject_current_tool_call();
+                if !app.has_pending_tool_calls() {
+                    app.set_status_message("All tool calls rejected".to_string());
+                }
+                return false;
+            }
+            KeyCode::Char('q') | KeyCode::Esc => {
+                // Exit agent mode and clear pending tools
+                app.exit_agent_mode();
+                return false;
+            }
+            _ => return false, // Ignore other keys when waiting for approval
+        }
+    }
+
+    // Normal agent mode input handling
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
-            app.mode = AppMode::Normal;
-            app.agent_mode = false;
-            app.pending_commands.clear();
-            app.command_approval_index = None;
+            app.exit_agent_mode();
         }
         KeyCode::Enter => {
             if !app.input.trim().is_empty() && !app.is_loading {
                 let input_content = app.input.clone();
+                app.input.clear();
                 
-                let _user_message = if app.agent_mode {
-                    let _context = std::env::current_dir()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|_| "Unknown directory".to_string());
-                    
-                    format!("Agent mode: {}", input_content)
-                } else {
-                    input_content.clone()
-                };
-
+                // Create agent-enhanced prompt
+                let agent_prompt = app.create_agent_prompt(&input_content);
+                
+                // Add user message
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
                     content: input_content,
                 });
-                app.input.clear();
 
+                // Add placeholder for assistant response
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: String::new(),
@@ -290,10 +331,22 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
 
                 let client = app.http_client.clone();
                 let model = app.current_model.clone();
-                let messages = app.current_messages().clone();
                 let base_url = app.ollama_base_url.clone();
                 let auth_config = app.config.auth_method.clone();
                 let auth_enabled = app.config.auth_enabled;
+
+                // Create modified messages with agent context
+                let mut messages = app.current_messages().clone();
+                if let Some(last_message) = messages.last_mut() {
+                    if last_message.role == models::Role::Assistant {
+                        messages.pop(); // Remove empty assistant message
+                    }
+                }
+                if let Some(user_msg) = messages.last_mut() {
+                    if user_msg.role == models::Role::User {
+                        user_msg.content = agent_prompt;
+                    }
+                }
 
                 tokio::spawn(async move {
                     ollama::stream_chat_request(

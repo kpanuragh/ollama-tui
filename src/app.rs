@@ -1,4 +1,4 @@
-use crate::{config, db, models};
+use crate::{agent, config, db, models};
 use anyhow::{anyhow, Result};
 use ratatui::widgets::ListState;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
@@ -46,9 +46,10 @@ pub struct AppState {
     pub config: models::Config,
     // Agent mode fields
     pub agent_mode: bool,
+    pub agent: agent::Agent,
     pub pending_commands: Vec<models::AgentCommand>,
     pub command_approval_index: Option<usize>,
-    #[allow(dead_code)]
+    pub pending_tool_calls: Vec<(String, std::collections::HashMap<String, serde_json::Value>)>,
     pub agent_context: String,
 }
 
@@ -129,8 +130,10 @@ impl AppState {
             config,
             // Initialize agent fields
             agent_mode: false,
+            agent: agent::Agent::new()?,
             pending_commands: Vec::new(),
             command_approval_index: None,
+            pending_tool_calls: Vec::new(),
             agent_context: String::new(),
         })
     }
@@ -361,8 +364,7 @@ impl AppState {
                 self.session_list_state.select(Some(self.current_session_index));
             }
             "a" => {
-                self.mode = AppMode::Agent;
-                self.agent_mode = true;
+                self.enter_agent_mode();
             }
             "h" | "?" => {
                 self.mode = AppMode::Help;
@@ -585,5 +587,88 @@ impl AppState {
 
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
+    }
+
+    // Agent mode methods
+    pub fn enter_agent_mode(&mut self) {
+        self.mode = AppMode::Agent;
+        self.agent_mode = true;
+        self.set_status_message("Agent mode activated - AI has access to system tools".to_string());
+    }
+
+    pub fn exit_agent_mode(&mut self) {
+        self.mode = AppMode::Normal;
+        self.agent_mode = false;
+        self.pending_tool_calls.clear();
+        self.command_approval_index = None;
+        self.set_status_message("Agent mode deactivated".to_string());
+    }
+
+    pub fn has_pending_tool_calls(&self) -> bool {
+        !self.pending_tool_calls.is_empty()
+    }
+
+    pub fn get_current_tool_call(&self) -> Option<&(String, std::collections::HashMap<String, serde_json::Value>)> {
+        self.command_approval_index
+            .and_then(|index| self.pending_tool_calls.get(index))
+    }
+
+    pub fn approve_current_tool_call(&mut self) -> Option<(String, std::collections::HashMap<String, serde_json::Value>)> {
+        if let Some(index) = self.command_approval_index {
+            if index < self.pending_tool_calls.len() {
+                let tool_call = self.pending_tool_calls.remove(index);
+                self.command_approval_index = if self.pending_tool_calls.is_empty() {
+                    None
+                } else if index >= self.pending_tool_calls.len() {
+                    Some(self.pending_tool_calls.len() - 1)
+                } else {
+                    Some(index)
+                };
+                return Some(tool_call);
+            }
+        }
+        None
+    }
+
+    pub fn reject_current_tool_call(&mut self) {
+        if let Some(index) = self.command_approval_index {
+            if index < self.pending_tool_calls.len() {
+                self.pending_tool_calls.remove(index);
+                self.command_approval_index = if self.pending_tool_calls.is_empty() {
+                    None
+                } else if index >= self.pending_tool_calls.len() {
+                    Some(self.pending_tool_calls.len() - 1)
+                } else {
+                    Some(index)
+                };
+            }
+        }
+    }
+
+    pub fn add_tool_calls(&mut self, tool_calls: Vec<(String, std::collections::HashMap<String, serde_json::Value>)>) {
+        for tool_call in tool_calls {
+            self.pending_tool_calls.push(tool_call);
+        }
+        
+        // Set approval index to first pending call if none set
+        if self.command_approval_index.is_none() && !self.pending_tool_calls.is_empty() {
+            self.command_approval_index = Some(0);
+        }
+    }
+
+    pub async fn execute_tool_call(&self, tool_name: &str, args: &std::collections::HashMap<String, serde_json::Value>) -> Result<agent::ToolResult> {
+        self.agent.execute_tool(tool_name, args).await
+    }
+
+    pub fn tool_requires_approval(&self, tool_name: &str) -> bool {
+        self.agent.tool_requires_approval(tool_name)
+    }
+
+    pub fn create_agent_prompt(&self, user_input: &str) -> String {
+        self.agent.create_agent_prompt(user_input)
+    }
+
+    pub fn parse_agent_response(&self, response: &str) -> Vec<(String, std::collections::HashMap<String, serde_json::Value>)> {
+        agent::Agent::parse_tool_calls(response)
     }
 }
