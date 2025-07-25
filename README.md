@@ -1,4 +1,3 @@
-
 # Ollama TUI 🚀
 
 A feature-rich, terminal-based user interface for interacting with [Ollama](https://ollama.com/), written in Rust. Enjoy a polished and responsive chat experience with **vim-style navigation** directly from your command line.
@@ -36,6 +35,7 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 | `i` | Enter insert mode |
 | `o`/`O` | Enter insert mode (clear input) |
 | `v` | Enter visual mode (select text) |
+| `A` | Enter agent mode (AI with system tools) |
 | `:` | Enter command mode |
 | `?` | Show help popup |
 | `q` | Quick quit |
@@ -74,11 +74,82 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 | `:c` | Clear current session |
 | `:m` | Select model |
 | `:s` | Select session |
-| `:a` | Enter agent mode |
+| `:a` | Enter agent mode (AI with system tools) |
 | `:h` or `:?` | Show help |
 | `:d` | Delete current session |
 | `:d<N>` | Delete session N |
 | `:b<N>` | Switch to session N |
+
+## 🤖 Agent Mode
+
+Agent mode provides the AI with access to system tools, enabling it to perform file operations, execute commands, and interact with your system. This is similar to the Gemini CLI Agent workflow but adapted for Ollama.
+
+### Entering Agent Mode
+
+- **Keyboard shortcut**: Press `A` in normal mode
+- **Command**: Type `:a` in command mode
+
+### Agent Capabilities
+
+When in agent mode, the AI has access to the following tools:
+
+- **File Operations**:
+  - `read_file`: Read file contents
+  - `write_file`: Create or modify files
+  - `list_directory`: Browse directory contents
+
+- **System Operations**:
+  - `execute_command`: Run shell commands (requires approval)
+  - `search_files`: Search for files by name or content
+  - `get_working_directory`: Get current directory
+
+### Safety Features
+
+- **Tool Approval**: Potentially dangerous operations require explicit user approval
+- **Safe Tools**: File reading and directory listing execute automatically
+- **Command Approval**: All shell commands require user confirmation
+
+### Agent Mode Interface
+
+- **Status Indicators**: The interface clearly shows when agent mode is active
+- **Tool Approval Popup**: When a tool requires approval, a popup shows:
+  - Tool name and parameters
+  - `Y` to approve and execute
+  - `N` to reject the tool call
+  - `ESC` to exit agent mode
+
+### Example Usage
+
+```
+User: "Create a backup of my config file and then list all .conf files"
+
+AI: I'll help you create a backup and list configuration files.
+
+<tool_call name="read_file">
+path=config.conf
+</tool_call>
+
+[Tool executes automatically]
+
+<tool_call name="write_file">
+path=config.conf.backup
+content=[file contents]
+</tool_call>
+
+[User approves with Y]
+
+<tool_call name="search_files">
+pattern=*.conf
+search_type=filename
+</tool_call>
+
+[Tool executes automatically]
+```
+
+### Exiting Agent Mode
+
+- Press `ESC` at any time to return to normal mode
+- Press `q` followed by `ESC` to exit agent mode
 
 ## 🔧 Installation & Setup
 

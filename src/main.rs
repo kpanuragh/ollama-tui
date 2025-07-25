@@ -243,9 +243,10 @@ async fn main() -> Result<()> {
             }
             Some(events::AppEvent::ToolExecutionResult(tool_name, result)) => {
                 let result_message = if result.success {
-                    format!("Tool '{}' executed successfully:\n{}", tool_name, result.output)
+                    format!("🔧 Tool '{}' executed successfully:\n\n```\n{}\n```", tool_name, result.output)
                 } else {
-                    format!("Tool '{}' failed: {}", tool_name, result.error.unwrap_or_else(|| "Unknown error".to_string()))
+                    let error_msg = result.error.unwrap_or_else(|| "Unknown error".to_string());
+                    format!("❌ Tool '{}' failed:\n{}", tool_name, error_msg)
                 };
                 
                 // Add tool execution result to chat

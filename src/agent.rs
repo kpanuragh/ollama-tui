@@ -186,32 +186,56 @@ Always request approval before executing potentially destructive commands or com
         let mut tool_calls = Vec::new();
         
         // Look for tool call patterns in the response
-        // This is a simple parser - in a real implementation you'd want more robust parsing
         let lines: Vec<&str> = response.lines().collect();
         let mut i = 0;
         
         while i < lines.len() {
             let line = lines[i].trim();
             
-            // Look for function call patterns like: <tool_call name="function_name">
-            if line.starts_with("<tool_call") && line.contains("name=") {
+            // Look for function call patterns - handle both formats:
+            // <tool_call name="function_name"> and <tool_ call name="function_name">
+            let is_tool_call = (line.starts_with("<tool_call") || line.starts_with("<tool_ call")) && line.contains("name=");
+            
+            if is_tool_call {
                 if let Some(name_start) = line.find("name=\"") {
                     let name_start = name_start + 6;
                     if let Some(name_end) = line[name_start..].find("\"") {
                         let tool_name = &line[name_start..name_start + name_end];
                         
-                        // Collect arguments until </tool_call>
+                        // Collect arguments until </tool_call> or </tool_ call>
                         let mut args = HashMap::new();
+                        let mut content_lines = Vec::new();
                         i += 1;
                         
-                        while i < lines.len() && !lines[i].trim().starts_with("</tool_call>") {
-                            let arg_line = lines[i].trim();
-                            if let Some(eq_pos) = arg_line.find('=') {
-                                let key = arg_line[..eq_pos].trim();
-                                let value = arg_line[eq_pos + 1..].trim().trim_matches('"');
+                        while i < lines.len() {
+                            let current_line = lines[i].trim();
+                            
+                            // Check for end tag (both formats)
+                            if current_line.starts_with("</tool_call>") || current_line.starts_with("</tool_ call>") {
+                                break;
+                            }
+                            
+                            // Check if it's a key=value pair
+                            if let Some(eq_pos) = current_line.find('=') {
+                                let key = current_line[..eq_pos].trim();
+                                let value = current_line[eq_pos + 1..].trim().trim_matches('"');
                                 args.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+                            } else if !current_line.is_empty() {
+                                // If it's not key=value, treat it as content for 'command' parameter
+                                content_lines.push(current_line);
                             }
                             i += 1;
+                        }
+                        
+                        // If we collected content lines and no explicit 'command' arg, use content as command
+                        if !content_lines.is_empty() && !args.contains_key("command") {
+                            let command = content_lines.join("\n");
+                            args.insert("command".to_string(), serde_json::Value::String(command));
+                        }
+                        
+                        // Add default description if missing
+                        if !args.contains_key("description") {
+                            args.insert("description".to_string(), serde_json::Value::String("AI agent tool execution".to_string()));
                         }
                         
                         tool_calls.push((tool_name.to_string(), args));
@@ -490,17 +514,33 @@ impl Tool for ExecuteCommandTool {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 
+                // Limit output length to prevent UI issues
+                const MAX_OUTPUT_LENGTH: usize = 2000;
+                let truncated_stdout = if stdout.len() > MAX_OUTPUT_LENGTH {
+                    format!("{}... [output truncated, {} total chars]", 
+                            &stdout[..MAX_OUTPUT_LENGTH], stdout.len())
+                } else {
+                    stdout.to_string()
+                };
+                
+                let truncated_stderr = if stderr.len() > MAX_OUTPUT_LENGTH {
+                    format!("{}... [output truncated, {} total chars]", 
+                            &stderr[..MAX_OUTPUT_LENGTH], stderr.len())
+                } else {
+                    stderr.to_string()
+                };
+                
                 if output.status.success() {
                     Ok(ToolResult {
                         success: true,
-                        output: stdout.to_string(),
-                        error: if stderr.is_empty() { None } else { Some(stderr.to_string()) },
+                        output: truncated_stdout,
+                        error: if stderr.is_empty() { None } else { Some(truncated_stderr) },
                     })
                 } else {
                     Ok(ToolResult {
                         success: false,
-                        output: stdout.to_string(),
-                        error: Some(stderr.to_string()),
+                        output: truncated_stdout,
+                        error: Some(truncated_stderr),
                     })
                 }
             },

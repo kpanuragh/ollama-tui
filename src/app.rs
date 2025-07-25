@@ -6,7 +6,7 @@ use reqwest::Client;
 use rusqlite::Connection;
 use textwrap::wrap;
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AppMode {
     Normal,         // Vim normal mode
     Insert,         // Vim insert mode for typing messages
