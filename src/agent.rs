@@ -116,6 +116,7 @@ pub struct Agent {
     os_info: String,
     shell_info: String,
     git_status: String,
+    fixed_execution_context: Option<String>,
 }
 
 impl Agent {
@@ -146,6 +147,7 @@ impl Agent {
             os_info,
             shell_info,
             git_status: git_info,
+            fixed_execution_context: None,
         })
     }
 
@@ -383,6 +385,11 @@ Always request approval before executing potentially destructive commands or com
     
     /// Get current execution context as JSON-like structure
     pub fn get_execution_context(&self) -> String {
+        // Return the fixed context if set, otherwise generate dynamically
+        if let Some(fixed_context) = &self.fixed_execution_context {
+            return fixed_context.clone();
+        }
+        
         let system_info = Self::get_system_info();
         let current_time = system_info.get("current_time")
             .unwrap_or(&"unknown".to_string()).clone();
@@ -429,6 +436,21 @@ Always request approval before executing potentially destructive commands or com
             hostname,
             self.git_status.replace('"', "\\\"")
         )
+    }
+    
+    /// Set a fixed execution context that will be used instead of dynamic generation
+    pub fn set_fixed_execution_context(&mut self, context: String) {
+        self.fixed_execution_context = Some(context);
+    }
+    
+    /// Clear the fixed execution context and return to dynamic generation
+    pub fn clear_fixed_execution_context(&mut self) {
+        self.fixed_execution_context = None;
+    }
+    
+    /// Check if a fixed execution context is currently set
+    pub fn has_fixed_execution_context(&self) -> bool {
+        self.fixed_execution_context.is_some()
     }
 
     /// Create an enhanced prompt for agent mode
