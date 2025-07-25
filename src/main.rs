@@ -245,7 +245,7 @@ async fn main() -> Result<()> {
                 let result_message = if result.success {
                     format!("🔧 Tool '{}' executed successfully:\n\n```\n{}\n```", tool_name, result.output)
                 } else {
-                    let error_msg = result.error.unwrap_or_else(|| "Unknown error".to_string());
+                    let error_msg = result.error.clone().unwrap_or_else(|| "Unknown error".to_string());
                     format!("❌ Tool '{}' failed:\n{}", tool_name, error_msg)
                 };
                 
@@ -255,9 +255,64 @@ async fn main() -> Result<()> {
                     content: result_message,
                 });
                 
+                // Clear status message and show completion feedback
+                if result.success {
+                    app_state.set_status_message(format!("Tool '{}' completed successfully", tool_name));
+                } else {
+                    app_state.set_status_message(format!("Tool '{}' failed - check output above", tool_name));
+                }
+                
                 // Auto-scroll to show the result
                 app_state.auto_scroll = true;
                 app_state.trigger_auto_scroll();
+                
+                // If in agent mode and no pending tool calls, send results back to Ollama for follow-up
+                if app_state.agent_mode && !app_state.has_pending_tool_calls() {
+                    // Collect all recent tool results (you might want to store these in app_state)
+                    let tool_results = vec![(tool_name, result)];
+                    
+                    // Create follow-up prompt with tool results
+                    let follow_up_prompt = app_state.create_follow_up_prompt(&tool_results);
+                    
+                    // Create agent messages with the follow-up prompt
+                    let agent_messages = vec![
+                        models::Message {
+                            role: models::Role::User,
+                            content: follow_up_prompt,
+                        }
+                    ];
+                    
+                    // Add a placeholder for the next assistant response
+                    app_state.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: String::new(),
+                    });
+                    
+                    app_state.is_loading = true;
+                    app_state.auto_scroll = true;
+                    app_state.trigger_auto_scroll();
+                    app_state.set_status_message("Sending tool results to AI for analysis...".to_string());
+                    
+                    let client = app_state.http_client.clone();
+                    let model = app_state.current_model.clone();
+                    let base_url = app_state.ollama_base_url.clone();
+                    let auth_config = app_state.config.auth_method.clone();
+                    let auth_enabled = app_state.config.auth_enabled;
+                    let tx_clone = tx.clone();
+                    
+                    tokio::spawn(async move {
+                        ollama::stream_chat_request(
+                            &client,
+                            &base_url,
+                            &model,
+                            &agent_messages,
+                            auth_enabled,
+                            auth_config.as_ref(),
+                            tx_clone,
+                        )
+                        .await;
+                    });
+                }
             }
             Some(events::AppEvent::AgentCommands(commands)) => {
                 // Handle agent commands (currently unused but needed for pattern matching)

@@ -51,6 +51,7 @@ pub struct AppState {
     pub command_approval_index: Option<usize>,
     pub pending_tool_calls: Vec<(String, std::collections::HashMap<String, serde_json::Value>)>,
     pub agent_context: String,
+    pub agent_conversation: Vec<models::Message>,
 }
 
 impl AppState {
@@ -135,6 +136,7 @@ impl AppState {
             command_approval_index: None,
             pending_tool_calls: Vec::new(),
             agent_context: String::new(),
+            agent_conversation: Vec::new(),
         })
     }
 
@@ -593,7 +595,9 @@ impl AppState {
     pub fn enter_agent_mode(&mut self) {
         self.mode = AppMode::Agent;
         self.agent_mode = true;
-        self.set_status_message("Agent mode activated - AI has access to system tools".to_string());
+        // Clear input when entering agent mode for clean start
+        self.input.clear();
+        self.set_status_message("Agent mode activated - AI has access to system tools. Type your request and press Enter.".to_string());
     }
 
     pub fn exit_agent_mode(&mut self) {
@@ -601,6 +605,7 @@ impl AppState {
         self.agent_mode = false;
         self.pending_tool_calls.clear();
         self.command_approval_index = None;
+        self.agent_conversation.clear();
         self.set_status_message("Agent mode deactivated".to_string());
     }
 
@@ -670,5 +675,58 @@ impl AppState {
 
     pub fn parse_agent_response(&self, response: &str) -> Vec<(String, std::collections::HashMap<String, serde_json::Value>)> {
         agent::Agent::parse_tool_calls(response)
+    }
+    
+    pub fn add_to_agent_conversation(&mut self, message: models::Message) {
+        self.agent_conversation.push(message);
+    }
+    
+    pub fn get_agent_conversation(&self) -> &Vec<models::Message> {
+        &self.agent_conversation
+    }
+    
+    pub fn create_follow_up_prompt(&self, tool_results: &[(String, agent::ToolResult)]) -> String {
+        let mut results_summary = String::new();
+        
+        for (tool_name, result) in tool_results {
+            if result.success {
+                results_summary.push_str(&format!(
+                    "✅ Tool '{}' executed successfully:\n{}\n\n", 
+                    tool_name, 
+                    result.output
+                ));
+            } else {
+                let unknown_error = "Unknown error".to_string();
+                let error_msg = result.error.as_ref().unwrap_or(&unknown_error);
+                results_summary.push_str(&format!(
+                    "❌ Tool '{}' failed:\n{}\n\n", 
+                    tool_name, 
+                    error_msg
+                ));
+            }
+        }
+        
+        let execution_context = self.agent.get_execution_context();
+        
+        format!(
+            r#"{}
+
+=== TOOL EXECUTION RESULTS ===
+{}
+
+=== CURRENT EXECUTION CONTEXT ===
+{}
+
+Based on these tool execution results and the current context, please:
+1. Analyze what was accomplished
+2. Determine if the user's original request has been fulfilled
+3. If not complete, suggest and execute the next appropriate steps
+4. If complete, provide a summary of what was accomplished
+
+Please respond naturally and use additional tools if needed to complete the task."#,
+            self.agent.get_system_prompt(),
+            results_summary,
+            execution_context
+        )
     }
 }

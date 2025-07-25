@@ -261,6 +261,9 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 // Approve current tool call
                 if let Some((tool_name, args)) = app.approve_current_tool_call() {
+                    // Clear status message and show execution feedback
+                    app.set_status_message(format!("Executing tool '{}'...", tool_name));
+                    
                     let app_tx = tx.clone();
                     let agent = app.agent.clone();
                     
@@ -280,6 +283,8 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                             }
                         }
                     });
+                } else {
+                    app.set_status_message("No tool call to approve".to_string());
                 }
                 return false;
             }
@@ -307,18 +312,26 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
         }
         KeyCode::Enter => {
             if !app.input.trim().is_empty() && !app.is_loading {
-                let input_content = app.input.clone();
-                app.input.clear();
+                let user_input: String = app.input.drain(..).collect();
                 
-                // Create agent-enhanced prompt
-                let agent_prompt = app.create_agent_prompt(&input_content);
+                // Create agent-enhanced prompt with system message
+                let agent_prompt = app.create_agent_prompt(&user_input);
                 
-                // Add user message
+                // For agent mode, we need to send a single message with the enhanced prompt
+                // that includes the system prompt, tools description, and user input
+                let agent_messages = vec![
+                    models::Message {
+                        role: models::Role::User,
+                        content: agent_prompt,
+                    }
+                ];
+                
+                // Add the original user message to the UI (not the enhanced prompt)
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
-                    content: input_content,
+                    content: user_input,
                 });
-
+                
                 // Add placeholder for assistant response
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
@@ -335,25 +348,12 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                 let auth_config = app.config.auth_method.clone();
                 let auth_enabled = app.config.auth_enabled;
 
-                // Create modified messages with agent context
-                let mut messages = app.current_messages().clone();
-                if let Some(last_message) = messages.last_mut() {
-                    if last_message.role == models::Role::Assistant {
-                        messages.pop(); // Remove empty assistant message
-                    }
-                }
-                if let Some(user_msg) = messages.last_mut() {
-                    if user_msg.role == models::Role::User {
-                        user_msg.content = agent_prompt;
-                    }
-                }
-
                 tokio::spawn(async move {
                     ollama::stream_chat_request(
                         &client,
                         &base_url,
                         &model,
-                        &messages,
+                        &agent_messages,
                         auth_enabled,
                         auth_config.as_ref(),
                         tx,

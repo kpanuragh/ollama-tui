@@ -2,6 +2,9 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::process::Command as TokioCommand;
+use std::process::Command;
+use chrono::Utc;
+use std::env;
 
 /// Represents a tool function that can be called by the agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,13 +113,21 @@ pub struct Agent {
     tools: HashMap<String, ToolInstance>,
     system_prompt: String,
     current_directory: String,
+    os_info: String,
+    shell_info: String,
+    git_status: String,
 }
 
 impl Agent {
     pub fn new() -> Result<Self> {
-        let current_directory = std::env::current_dir()
+        let current_directory = env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "/".to_string());
+
+        let os_info = format!("{} {}", env::consts::OS, env::consts::ARCH);
+        let shell_info = env::var("SHELL").unwrap_or_else(|_| "unknown".into());
+        let git_info = Self::get_git_info();
+        let _system_info = Self::get_system_info();
 
         let mut tools = HashMap::new();
         
@@ -132,6 +143,9 @@ impl Agent {
             tools,
             system_prompt: Self::default_system_prompt(),
             current_directory,
+            os_info,
+            shell_info,
+            git_status: git_info,
         })
     }
 
@@ -248,32 +262,244 @@ Always request approval before executing potentially destructive commands or com
         tool_calls
     }
 
+    /// Get comprehensive git repository information
+    fn get_git_info() -> String {
+        let mut git_info = Vec::new();
+        
+        // Check if we're in a git repository
+        if let Ok(output) = Command::new("git")
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output()
+        {
+            if !output.status.success() {
+                return "Not a git repository".to_string();
+            }
+        } else {
+            return "Git not available".to_string();
+        }
+        
+        // Get current branch
+        if let Ok(output) = Command::new("git")
+            .args(["branch", "--show-current"])
+            .output()
+        {
+            if output.status.success() {
+                let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                git_info.push(format!("Branch: {}", branch));
+            }
+        }
+        
+        // Get repository status
+        if let Ok(output) = Command::new("git")
+            .args(["status", "--porcelain"])
+            .output()
+        {
+            if output.status.success() {
+                let status = String::from_utf8_lossy(&output.stdout);
+                if status.trim().is_empty() {
+                    git_info.push("Status: Clean working tree".to_string());
+                } else {
+                    let lines: Vec<&str> = status.lines().collect();
+                    git_info.push(format!("Status: {} changes", lines.len()));
+                }
+            }
+        }
+        
+        // Get remote information
+        if let Ok(output) = Command::new("git")
+            .args(["remote", "-v"])
+            .output()
+        {
+            if output.status.success() {
+                let remotes = String::from_utf8_lossy(&output.stdout);
+                if !remotes.trim().is_empty() {
+                    let remote_lines: Vec<&str> = remotes.lines().collect();
+                    git_info.push(format!("Remotes: {} configured", remote_lines.len() / 2));
+                }
+            }
+        }
+        
+        // Get last commit info
+        if let Ok(output) = Command::new("git")
+            .args(["log", "-1", "--oneline"])
+            .output()
+        {
+            if output.status.success() {
+                let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                git_info.push(format!("Last commit: {}", 
+                    if commit.len() > 50 { 
+                        format!("{}...", &commit[..50]) 
+                    } else { 
+                        commit 
+                    }
+                ));
+            }
+        }
+        
+        if git_info.is_empty() {
+            "Git repository (no additional info)".to_string()
+        } else {
+            git_info.join(", ")
+        }
+    }
+    
+    /// Get additional system information
+    fn get_system_info() -> HashMap<String, String> {
+        let mut info = HashMap::new();
+        
+        // Get current time
+        let now = Utc::now();
+        info.insert("current_time".to_string(), now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        
+        // Get user information
+        if let Ok(user) = env::var("USER") {
+            info.insert("user".to_string(), user);
+        }
+        
+        // Get hostname
+        if let Ok(output) = Command::new("hostname").output() {
+            if output.status.success() {
+                let hostname = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                info.insert("hostname".to_string(), hostname);
+            }
+        }
+        
+        // Get shell version if possible
+        if let Ok(shell_path) = env::var("SHELL") {
+            if let Ok(output) = Command::new(&shell_path).arg("--version").output() {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+                    info.insert("shell_version".to_string(), version);
+                }
+            }
+        }
+        
+        info
+    }
+    
+    /// Get current execution context as JSON-like structure
+    pub fn get_execution_context(&self) -> String {
+        let system_info = Self::get_system_info();
+        let current_time = system_info.get("current_time")
+            .unwrap_or(&"unknown".to_string()).clone();
+        let user = system_info.get("user")
+            .unwrap_or(&"unknown".to_string()).clone();
+        let hostname = system_info.get("hostname")
+            .unwrap_or(&"unknown".to_string()).clone();
+        let shell_version = system_info.get("shell_version")
+            .unwrap_or(&"unknown".to_string()).clone();
+        
+        format!(
+            r#"{{
+  "execution_context": {{
+    "directory_state": {{
+      "pwd": "{}",
+      "home": "{}"
+    }},
+    "operating_system": {{
+      "platform": "{}",
+      "architecture": "{}"
+    }},
+    "current_time": "{}",
+    "shell": {{
+      "name": "{}",
+      "version": "{}"
+    }},
+    "user_info": {{
+      "username": "{}",
+      "hostname": "{}"
+    }},
+    "git_repository": {{
+      "info": "{}"
+    }}
+  }}
+}}"#,
+            self.current_directory,
+            env::var("HOME").unwrap_or_else(|_| "unknown".to_string()),
+            env::consts::OS,
+            env::consts::ARCH,
+            current_time,
+            self.shell_info.split('/').last().unwrap_or("unknown"),
+            shell_version,
+            user,
+            hostname,
+            self.git_status.replace('"', "\\\"")
+        )
+    }
+
     /// Create an enhanced prompt for agent mode
     pub fn create_agent_prompt(&self, user_input: &str) -> String {
         let tools_description = self.tools.values()
-            .map(|tool| format!("- {}: {}", tool.name(), tool.description()))
+            .map(|tool| {
+                let func_def = tool.get_function_definition();
+                let params: Vec<String> = func_def.parameters.required.iter()
+                    .map(|param| {
+                        if let Some(prop) = func_def.parameters.properties.get(param) {
+                            format!("  - {}: {} ({})", param, prop.prop_type, prop.description)
+                        } else {
+                            format!("  - {}: required parameter", param)
+                        }
+                    })
+                    .collect();
+                
+                format!("- {}\n  Description: {}\n  Parameters:\n{}", 
+                    tool.name(), 
+                    tool.description(),
+                    if params.is_empty() { "    (none)".to_string() } else { params.join("\n") }
+                )
+            })
             .collect::<Vec<_>>()
-            .join("\n");
+            .join("\n\n");
+
+        // Get comprehensive execution context
+        let execution_context = self.get_execution_context();
 
         format!(
             r#"{}
 
-Current working directory: {}
-
-Available tools:
+=== EXECUTION CONTEXT ===
 {}
 
-User request: {}
+=== ENVIRONMENT DETAILS ===
+- Working Directory: {}
+- Operating System: {}
+- Shell: {}
+- Git Repository: {}
 
-To use a tool, respond with:
+=== AVAILABLE TOOLS ===
+{}
+
+=== USER REQUEST ===
+{}
+
+=== TOOL USAGE FORMAT ===
+IMPORTANT: To use a tool, you MUST use this exact format:
 <tool_call name="tool_name">
 parameter1=value1
 parameter2=value2
 </tool_call>
 
-Please help the user with their request using the available tools."#,
+Example usage:
+<tool_call name="read_file">
+path=/home/user/document.txt
+</tool_call>
+
+<tool_call name="execute_command">
+command=ls -la
+description=List directory contents
+</tool_call>
+
+Please analyze the user's request within the context of the current environment and use the appropriate tools to help them. Be specific and practical in your approach."#,
             self.system_prompt,
+            execution_context,
             self.current_directory,
+            self.os_info,
+            self.shell_info.split('/').last().unwrap_or("unknown"),
+            self.git_status,
             tools_description,
             user_input
         )
