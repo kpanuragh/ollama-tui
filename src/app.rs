@@ -38,6 +38,22 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Initializes and loads the application state from the provided configuration.
+    ///
+    /// Loads chat sessions, the last used model, and the last session ID from the database and configuration.
+    /// Establishes database and HTTP client connections, prepares UI state, and initializes agent mode fields with default values.
+    /// Creates a new chat session if none exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the configuration path is invalid, database connection fails, or HTTP client cannot be built.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let config = models::Config::default();
+    /// let app_state = AppState::load(config).unwrap();
+    /// ```
     pub fn load(config: models::Config) -> Result<Self> {
         let db_path = config::get_config_path()?
             .parent()
