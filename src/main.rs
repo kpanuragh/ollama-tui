@@ -297,12 +297,11 @@ async fn main() -> Result<()> {
                                     }
                                     "execute" => {
                                         if let Some(cmd) = command {
-                                            // Update agent state
-                                            if let Some(ref mut agent) = app_state.autonomous_agent {
+                                            // Check safety limit first
+                                            let should_execute = if let Some(ref mut agent) = app_state.autonomous_agent {
                                                 agent.state = crate::autonomous_agent::AgentState::Executing;
                                                 agent.current_step += 1;
 
-                                                // Check safety limit
                                                 if agent.should_stop() {
                                                     app_state.current_messages_mut().push(models::Message {
                                                         role: models::Role::Assistant,
@@ -310,25 +309,31 @@ async fn main() -> Result<()> {
                                                         timestamp: chrono::Utc::now(),
                                                     });
                                                     agent.state = crate::autonomous_agent::AgentState::Failed;
-                                                    return;
+                                                    false
+                                                } else {
+                                                    true
                                                 }
+                                            } else {
+                                                true
+                                            };
+
+                                            if should_execute {
+                                                // Show command to user
+                                                app_state.current_messages_mut().push(models::Message {
+                                                    role: models::Role::Assistant,
+                                                    content: format!("⚡ **Executing**: `{}`", cmd),
+                                                    timestamp: chrono::Utc::now(),
+                                                });
+
+                                                // Execute the command
+                                                let cmd_clone = cmd.to_string();
+                                                let tx_clone = tx.clone();
+                                                tokio::spawn(async move {
+                                                    use crate::agent::Agent;
+                                                    let result = Agent::execute_command(&cmd_clone).await;
+                                                    tx_clone.send(events::AppEvent::AutonomousCommandExecuted(result)).await.ok();
+                                                });
                                             }
-
-                                            // Show command to user
-                                            app_state.current_messages_mut().push(models::Message {
-                                                role: models::Role::Assistant,
-                                                content: format!("⚡ **Executing**: `{}`", cmd),
-                                                timestamp: chrono::Utc::now(),
-                                            });
-
-                                            // Execute the command
-                                            let cmd_clone = cmd.to_string();
-                                            let tx_clone = tx.clone();
-                                            tokio::spawn(async move {
-                                                use crate::agent::Agent;
-                                                let result = Agent::execute_command(&cmd_clone).await;
-                                                tx_clone.send(events::AppEvent::AutonomousCommandExecuted(result)).await.ok();
-                                            });
                                         } else {
                                             app_state.current_messages_mut().push(models::Message {
                                                 role: models::Role::Assistant,
