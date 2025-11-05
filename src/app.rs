@@ -368,6 +368,29 @@ impl AppState {
                 let context = crate::agent::Agent::gather_system_context();
                 self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
             }
+            "an" => {
+                // Agent mode with new/fresh context (no previous messages)
+                // Clear current session messages
+                let messages = self.current_messages_mut();
+                messages.clear();
+                messages.push(models::Message {
+                    role: models::Role::Assistant,
+                    content: "Agent mode started with fresh context. I can suggest shell commands to help you.".to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+
+                // Enter agent mode
+                self.mode = AppMode::Agent;
+                self.agent_mode = true;
+
+                // Generate system prompt with current context
+                let context = crate::agent::Agent::gather_system_context();
+                self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
+
+                // Reset chat UI state
+                self.chat_list_state = ListState::default();
+                self.auto_scroll = true;
+            }
             "h" | "?" => {
                 self.mode = AppMode::Help;
             }

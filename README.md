@@ -77,7 +77,8 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 | `:c` | Clear current session |
 | `:m` | Select model |
 | `:s` | Select session |
-| `:a` | Enter agent mode |
+| `:a` | Enter agent mode (with history) |
+| `:an` | Enter agent mode (fresh, no history) |
 | `:h` or `:?` | Show help |
 | `:d` | Delete current session |
 | `:d<N>` | Delete session N |
@@ -190,13 +191,31 @@ Configuration file is automatically created at:
 
 Agent mode allows the AI to suggest shell commands based on your requests, which you can then review and approve before execution.
 
+### Entering Agent Mode
+
+- **`:a`** - Agent mode with conversation history (AI remembers previous messages)
+- **`:an`** - Agent mode with fresh context (starts clean, no previous messages)
+
+Use `:an` when:
+- Previous conversation is too long or cluttered
+- Starting a completely new task
+- You want faster responses (less context to process)
+- Agent suggestions are being influenced by old context
+
 ### How Agent Mode Works
 
-1. **Enter Agent Mode**: Type `:a` from normal mode
+1. **Enter Agent Mode**: Type `:a` or `:an` from normal mode
 2. **Make a Request**: Ask the AI to perform a task (e.g., "list all files in the src directory")
 3. **AI Suggests Commands**: The AI responds with suggested shell commands in code blocks
 4. **Review & Approve**: Commands are parsed and shown in the approval interface
 5. **Execute**: Approved commands are executed and results are shown in chat
+
+**Context Awareness**: The AI automatically knows your:
+- Operating system (Linux/macOS/Windows)
+- Current directory
+- Shell environment
+- Git repository status (if applicable)
+- Git branch name (if in a repo)
 
 ### Agent Approval Mode Keys
 
