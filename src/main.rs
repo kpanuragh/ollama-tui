@@ -297,25 +297,30 @@ async fn main() -> Result<()> {
                                     }
                                     "execute" => {
                                         if let Some(cmd) = command {
-                                            // Check safety limit first
-                                            let should_execute = if let Some(ref mut agent) = app_state.autonomous_agent {
+                                            // Check safety limit first - extract data before messages
+                                            let (should_execute, max_steps_msg) = if let Some(ref mut agent) = app_state.autonomous_agent {
                                                 agent.state = crate::autonomous_agent::AgentState::Executing;
                                                 agent.current_step += 1;
 
                                                 if agent.should_stop() {
-                                                    app_state.current_messages_mut().push(models::Message {
-                                                        role: models::Role::Assistant,
-                                                        content: format!("⚠️ **Safety Limit Reached**: Maximum steps ({}) exceeded. Stopping for safety.", agent.max_steps),
-                                                        timestamp: chrono::Utc::now(),
-                                                    });
+                                                    let msg = format!("⚠️ **Safety Limit Reached**: Maximum steps ({}) exceeded. Stopping for safety.", agent.max_steps);
                                                     agent.state = crate::autonomous_agent::AgentState::Failed;
-                                                    false
+                                                    (false, Some(msg))
                                                 } else {
-                                                    true
+                                                    (true, None)
                                                 }
                                             } else {
-                                                true
+                                                (true, None)
                                             };
+
+                                            // Now we can borrow app_state to add message
+                                            if let Some(msg) = max_steps_msg {
+                                                app_state.current_messages_mut().push(models::Message {
+                                                    role: models::Role::Assistant,
+                                                    content: msg,
+                                                    timestamp: chrono::Utc::now(),
+                                                });
+                                            }
 
                                             if should_execute {
                                                 // Show command to user
@@ -370,8 +375,8 @@ async fn main() -> Result<()> {
                 }
             }
             Some(events::AppEvent::AutonomousCommandExecuted(result)) => {
-                // Command execution completed - now analyze the output
-                if let Some(ref mut agent) = app_state.autonomous_agent {
+                // Extract analysis prompt in one scope
+                let analysis_prompt = if let Some(ref mut agent) = app_state.autonomous_agent {
                     agent.state = crate::autonomous_agent::AgentState::AnalyzingOutput;
 
                     let (output, exit_code) = match &result {
@@ -379,6 +384,14 @@ async fn main() -> Result<()> {
                         Err(err) => (err.clone(), 1),
                     };
 
+                    // Get the last command executed (from reasoning)
+                    let last_command = "command".to_string(); // TODO: track this properly
+                    Some((agent.create_analysis_prompt(&last_command, &output, exit_code), output))
+                } else {
+                    None
+                };
+
+                if let Some((analysis_prompt, output)) = analysis_prompt {
                     // Show output to user
                     app_state.current_messages_mut().push(models::Message {
                         role: models::Role::Assistant,
@@ -394,10 +407,6 @@ async fn main() -> Result<()> {
                     });
 
                     app_state.is_loading = true;
-
-                    // Get the last command executed (from reasoning)
-                    let last_command = "command".to_string(); // TODO: track this properly
-                    let analysis_prompt = agent.create_analysis_prompt(&last_command, &output, exit_code);
 
                     let client = app_state.http_client.clone();
                     let model = app_state.current_model.clone();
@@ -480,9 +489,15 @@ async fn main() -> Result<()> {
                                 });
 
                                 // Continue the loop - ask AI for next step
-                                if let Some(ref mut agent) = app_state.autonomous_agent {
+                                // Extract reasoning prompt first
+                                let reasoning_prompt = if let Some(ref mut agent) = app_state.autonomous_agent {
                                     agent.state = crate::autonomous_agent::AgentState::Reasoning;
+                                    Some(agent.create_reasoning_prompt())
+                                } else {
+                                    None
+                                };
 
+                                if let Some(reasoning_prompt) = reasoning_prompt {
                                     app_state.current_messages_mut().push(models::Message {
                                         role: models::Role::Assistant,
                                         content: "🔄 Planning next step...".to_string(),
@@ -491,7 +506,6 @@ async fn main() -> Result<()> {
 
                                     app_state.is_loading = true;
 
-                                    let reasoning_prompt = agent.create_reasoning_prompt();
                                     let client = app_state.http_client.clone();
                                     let model = app_state.current_model.clone();
                                     let base_url = app_state.ollama_base_url.clone();
