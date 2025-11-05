@@ -1,4 +1,3 @@
-use crate::models::{Message, Role};
 use crate::agent::{Agent, SystemContext};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;

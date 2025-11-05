@@ -1,7 +1,6 @@
 use crate::models::AgentCommand;
 use regex::Regex;
 use std::env;
-use std::path::PathBuf;
 
 pub struct Agent;
 

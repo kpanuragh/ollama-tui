@@ -214,7 +214,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         .sessions
         .iter()
         .enumerate()
-        .map(|(idx, s)| {
+        .map(|(_idx, s)| {
             let is_current = s.id == app.sessions[app.current_session_index].id;
             let icon = if is_current { "▶" } else { " " };
             let msg_count = s.messages.len();
@@ -522,7 +522,7 @@ fn render_modern_agent_approval_popup(f: &mut Frame, app: &AppState) {
     f.render_widget(help_bar, popup_chunks[1]);
 }
 
-fn render_help_popup(f: &mut Frame, app: &mut AppState) {
+fn render_help_popup(f: &mut Frame, _app: &mut AppState) {
     let popup_area = centered_rect(80, 85, f.area());
     let block = Block::default()
         .title("❓ Ollama TUI - Help Guide")

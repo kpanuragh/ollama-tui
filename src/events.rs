@@ -533,10 +533,15 @@ async fn handle_autonomous_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sen
                 let user_goal = app.input.clone();
                 app.input.clear();
 
-                // Set the goal in the autonomous agent
-                if let Some(ref mut agent) = app.autonomous_agent {
+                // Set the goal and get reasoning prompt in one scope
+                let reasoning_prompt = if let Some(ref mut agent) = app.autonomous_agent {
                     agent.set_goal(user_goal.clone());
+                    Some(agent.create_reasoning_prompt())
+                } else {
+                    None
+                };
 
+                if let Some(reasoning_prompt) = reasoning_prompt {
                     // Add user message
                     app.current_messages_mut().push(models::Message {
                         role: models::Role::User,
@@ -554,8 +559,6 @@ async fn handle_autonomous_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sen
                     app.is_loading = true;
                     app.auto_scroll = true;
 
-                    // Start the reasoning loop - ask AI what to do
-                    let reasoning_prompt = agent.create_reasoning_prompt();
                     let client = app.http_client.clone();
                     let model = app.current_model.clone();
                     let base_url = app.ollama_base_url.clone();
