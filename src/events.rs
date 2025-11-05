@@ -174,6 +174,7 @@ async fn handle_insert_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<
                         &messages,
                         auth_enabled,
                         auth_config.as_ref(),
+                        None, // No system prompt for normal chat
                         tx,
                     )
                     .await;
@@ -299,6 +300,7 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                 let base_url = app.ollama_base_url.clone();
                 let auth_config = app.config.auth_method.clone();
                 let auth_enabled = app.config.auth_enabled;
+                let system_prompt = app.agent_system_prompt.clone();
 
                 tokio::spawn(async move {
                     ollama::stream_chat_request(
@@ -308,6 +310,7 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                         &messages,
                         auth_enabled,
                         auth_config.as_ref(),
+                        Some(&system_prompt), // Use agent system prompt
                         tx,
                     )
                     .await;

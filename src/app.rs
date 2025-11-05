@@ -49,8 +49,7 @@ pub struct AppState {
     pub agent_mode: bool,
     pub pending_commands: Vec<models::AgentCommand>,
     pub command_approval_index: Option<usize>,
-    #[allow(dead_code)]
-    pub agent_context: String,
+    pub agent_system_prompt: String,
 }
 
 impl AppState {
@@ -132,7 +131,7 @@ impl AppState {
             agent_mode: false,
             pending_commands: Vec::new(),
             command_approval_index: None,
-            agent_context: String::new(),
+            agent_system_prompt: String::new(),
         })
     }
 
@@ -365,6 +364,9 @@ impl AppState {
             "a" => {
                 self.mode = AppMode::Agent;
                 self.agent_mode = true;
+                // Generate system prompt with current context
+                let context = crate::agent::Agent::gather_system_context();
+                self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
             }
             "h" | "?" => {
                 self.mode = AppMode::Help;

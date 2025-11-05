@@ -164,6 +164,8 @@ pub struct ChatRequest<'a> {
     pub model: &'a str,
     pub messages: &'a [Message],
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<&'a str>,
 }
 
 #[derive(Deserialize, Debug)]
