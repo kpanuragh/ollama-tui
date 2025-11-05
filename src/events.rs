@@ -27,6 +27,7 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
         AppMode::ModelSelection => handle_model_selection_mode(key, app).await,
         AppMode::SessionSelection => handle_session_selection_mode(key, app).await,
         AppMode::Agent => handle_agent_mode(key, app, tx).await,
+        AppMode::AgentApproval => handle_agent_approval_mode(key, app, tx).await,
         AppMode::Help => handle_help_mode(key, app).await,
     }
 }
@@ -412,3 +413,94 @@ async fn handle_visual_mode(key: KeyEvent, app: &mut AppState) -> bool {
     false
 }
 
+
+async fn handle_agent_approval_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            // Cancel and return to agent mode
+            app.mode = AppMode::Agent;
+            app.pending_commands.clear();
+            app.command_approval_index = None;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            // Move to next command
+            if let Some(current) = app.command_approval_index {
+                if current < app.pending_commands.len().saturating_sub(1) {
+                    app.command_approval_index = Some(current + 1);
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            // Move to previous command
+            if let Some(current) = app.command_approval_index {
+                if current > 0 {
+                    app.command_approval_index = Some(current - 1);
+                }
+            }
+        }
+        KeyCode::Char('y') => {
+            // Approve current command
+            if let Some(index) = app.command_approval_index {
+                if let Some(cmd) = app.pending_commands.get_mut(index) {
+                    cmd.approved = true;
+                }
+            }
+        }
+        KeyCode::Char('n') => {
+            // Reject current command
+            if let Some(index) = app.command_approval_index {
+                if let Some(cmd) = app.pending_commands.get_mut(index) {
+                    cmd.approved = false;
+                }
+            }
+        }
+        KeyCode::Char('a') => {
+            // Approve all commands
+            for cmd in &mut app.pending_commands {
+                cmd.approved = true;
+            }
+        }
+        KeyCode::Char('r') => {
+            // Reject all commands
+            for cmd in &mut app.pending_commands {
+                cmd.approved = false;
+            }
+        }
+        KeyCode::Enter | KeyCode::Char('x') => {
+            // Execute approved commands
+            let approved_commands: Vec<_> = app.pending_commands
+                .iter()
+                .enumerate()
+                .filter(|(_, cmd)| cmd.approved && !cmd.executed)
+                .map(|(i, _)| i)
+                .collect();
+
+            if approved_commands.is_empty() {
+                app.set_status_message("No commands approved for execution".to_string());
+                app.mode = AppMode::Agent;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            } else {
+                // Execute each approved command
+                for index in approved_commands {
+                    if let Some(cmd) = app.pending_commands.get(index) {
+                        let command = cmd.command.clone();
+                        let tx_clone = tx.clone();
+
+                        tokio::spawn(async move {
+                            use crate::agent::Agent;
+                            let result = Agent::execute_command(&command).await;
+                            tx_clone.send(AppEvent::CommandExecuted(index, result)).await.ok();
+                        });
+                    }
+                }
+
+                app.mode = AppMode::Agent;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            }
+        }
+        _ => {}
+    }
+    false
+}

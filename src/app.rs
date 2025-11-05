@@ -14,7 +14,8 @@ pub enum AppMode {
     Visual,         // Vim visual mode for text selection
     ModelSelection,
     SessionSelection,
-    Agent,          // New agent mode
+    Agent,          // Agent mode for typing requests
+    AgentApproval,  // Agent approval mode for reviewing commands
     Help,           // Help popup mode
 }
 

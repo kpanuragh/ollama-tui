@@ -82,6 +82,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         AppMode::ModelSelection => "-- MODEL SELECTION --",
         AppMode::SessionSelection => "-- SESSION SELECTION --",
         AppMode::Agent => "-- AGENT --",
+        AppMode::AgentApproval => "-- AGENT APPROVAL --",
         AppMode::Help => "-- HELP --",
     };
 
@@ -181,7 +182,11 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     if app.mode == AppMode::ModelSelection {
         render_model_selection_popup(f, app);
     }
-    
+
+    if app.mode == AppMode::AgentApproval {
+        render_agent_approval_popup(f, app);
+    }
+
     if app.mode == AppMode::Help {
         render_help_popup(f, app);
     }
@@ -412,6 +417,15 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
         "  Model Selection - Use j/k or ↑/↓ to navigate, Enter to select",
         "  Session Selection - Use j/k or ↑/↓ to navigate, Enter to select, d to delete",
         "  Agent Mode     - Interactive AI agent (experimental)",
+        "",
+        "AGENT APPROVAL MODE KEYS:",
+        "  j/k or ↑/↓     - Navigate commands",
+        "  y              - Approve current command",
+        "  n              - Reject current command",
+        "  a              - Approve all commands",
+        "  r              - Reject all commands",
+        "  x or Enter     - Execute approved commands",
+        "  ESC or q       - Cancel and return to agent mode",
     ];
 
     let help_paragraph = Paragraph::new(help_text.join("\n"))
@@ -423,3 +437,63 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
     f.render_widget(help_paragraph, popup_area);
 }
 
+fn render_agent_approval_popup(f: &mut Frame, app: &AppState) {
+    let popup_area = centered_rect(80, 70, f.area());
+    let block = Block::default()
+        .title("Agent Command Approval [j/k:navigate | y:approve | n:reject | a:approve all | x/Enter:execute | ESC:cancel]")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    if app.pending_commands.is_empty() {
+        let text = Paragraph::new("No commands to approve")
+            .alignment(Alignment::Center)
+            .block(block);
+        f.render_widget(Clear, popup_area);
+        f.render_widget(text, popup_area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .pending_commands
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            let status = if cmd.approved {
+                "✓ "
+            } else {
+                "✗ "
+            };
+
+            let mut style = Style::default();
+            if cmd.approved {
+                style = style.fg(Color::Green);
+            } else {
+                style = style.fg(Color::Red);
+            }
+
+            // Highlight current selection
+            if Some(i) == app.command_approval_index {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+
+            ListItem::new(format!("{}{}", status, cmd.command)).style(style)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD)
+        )
+        .highlight_symbol(">> ");
+
+    f.render_widget(Clear, popup_area);
+
+    // Create a ListState for rendering
+    let mut list_state = ratatui::widgets::ListState::default();
+    list_state.select(app.command_approval_index);
+
+    f.render_stateful_widget(list, popup_area, &mut list_state);
+}

@@ -163,11 +163,10 @@ async fn main() -> Result<()> {
                 if app_state.agent_mode {
                     if let Some(last_message) = app_state.current_messages().last() {
                         if last_message.role == models::Role::Assistant {
-                            // TODO: Parse commands from response when agent module is implemented
-                            // let commands = agent::Agent::parse_commands_from_response(&last_message.content);
-                            // if !commands.is_empty() {
-                            //     tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
-                            // }
+                            let commands = agent::Agent::parse_commands_from_response(&last_message.content);
+                            if !commands.is_empty() {
+                                tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
+                            }
                         }
                     }
                 }
@@ -208,6 +207,7 @@ async fn main() -> Result<()> {
                 app_state.pending_commands = commands;
                 if !app_state.pending_commands.is_empty() {
                     app_state.command_approval_index = Some(0);
+                    app_state.mode = app::AppMode::AgentApproval;
                 }
             }
             Some(events::AppEvent::CommandExecuted(index, result)) => {

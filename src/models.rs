@@ -169,11 +169,9 @@ pub struct StreamChatResponse {
     pub done: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct AgentCommand {
     pub command: String,
-    #[allow(dead_code)]
     pub approved: bool,
     pub executed: bool,
     pub output: Option<String>,
@@ -181,7 +179,6 @@ pub struct AgentCommand {
 }
 
 impl AgentCommand {
-    #[allow(dead_code)]
     pub fn new(command: String) -> Self {
         Self {
             command,
