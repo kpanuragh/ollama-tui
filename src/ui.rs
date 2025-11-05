@@ -107,6 +107,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         AppMode::SessionSelection => ("SESSION", Style::default().fg(Color::LightCyan), "📋"),
         AppMode::Agent => ("AGENT", Style::default().fg(Color::LightRed), "🤖"),
         AppMode::AgentApproval => ("APPROVE", Style::default().fg(Color::LightYellow), "✅"),
+        AppMode::Autonomous => ("AUTO", Style::default().fg(Color::LightGreen), "🚀"),
         AppMode::Help => ("HELP", Style::default().fg(Color::White), "❓"),
     };
 
@@ -156,6 +157,9 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
             AppMode::Agent => format!(
                 "🤖 Agent Mode | ESC→normal | Enter→send | Commands will need approval"
             ),
+            AppMode::Autonomous => format!(
+                "🚀 Autonomous Mode | ESC→stop | Enter→set goal | Agent works autonomously"
+            ),
             AppMode::Command => "⚡ Type command and press Enter | ESC to cancel".to_string(),
             AppMode::Visual => "👁️ VISUAL | j/k extend | y copy | ESC exit".to_string(),
             AppMode::SessionSelection => "📋 SESSION | j/k navigate | Enter select | d delete | ESC exit".to_string(),
@@ -183,6 +187,13 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
             }
         }
         AppMode::Agent => {
+            if !app.is_loading {
+                let cursor_x = left_chunks[1].x + app.input.width() as u16 + 1;
+                let cursor_y = left_chunks[1].y + 1;
+                f.set_cursor_position((cursor_x.min(left_chunks[1].right().saturating_sub(2)), cursor_y.min(left_chunks[1].bottom().saturating_sub(2))));
+            }
+        }
+        AppMode::Autonomous => {
             if !app.is_loading {
                 let cursor_x = left_chunks[1].x + app.input.width() as u16 + 1;
                 let cursor_y = left_chunks[1].y + 1;

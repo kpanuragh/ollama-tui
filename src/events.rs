@@ -15,6 +15,10 @@ pub enum AppEvent {
     AgentCommands(Vec<models::AgentCommand>),
     #[allow(dead_code)]
     CommandExecuted(usize, Result<String, String>),
+    // Autonomous agent events
+    AutonomousReasoningComplete(Result<String, String>),  // JSON response from reasoning
+    AutonomousCommandExecuted(Result<String, String>),     // Command execution result
+    AutonomousAnalysisComplete(Result<String, String>),    // Analysis of command output
     Tick,
 }
 
@@ -28,6 +32,7 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
         AppMode::SessionSelection => handle_session_selection_mode(key, app).await,
         AppMode::Agent => handle_agent_mode(key, app, tx).await,
         AppMode::AgentApproval => handle_agent_approval_mode(key, app, tx).await,
+        AppMode::Autonomous => handle_autonomous_mode(key, app, tx).await,
         AppMode::Help => handle_help_mode(key, app).await,
     }
 }
@@ -506,6 +511,108 @@ async fn handle_agent_approval_mode(key: KeyEvent, app: &mut AppState, tx: mpsc:
                 app.pending_commands.clear();
                 app.command_approval_index = None;
             }
+        }
+        _ => {}
+    }
+    false
+}
+async fn handle_autonomous_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            // Exit autonomous mode
+            app.mode = AppMode::Normal;
+            app.autonomous_agent = None;
+            app.current_messages_mut().push(models::Message {
+                role: models::Role::Assistant,
+                content: "🛑 Autonomous mode stopped.".to_string(),
+                timestamp: chrono::Utc::now(),
+            });
+        }
+        KeyCode::Enter => {
+            if !app.input.trim().is_empty() && !app.is_loading {
+                let user_goal = app.input.clone();
+                app.input.clear();
+
+                // Set the goal in the autonomous agent
+                if let Some(ref mut agent) = app.autonomous_agent {
+                    agent.set_goal(user_goal.clone());
+
+                    // Add user message
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::User,
+                        content: user_goal,
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    // Add status message
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: "🔍 Analyzing goal and planning first step...".to_string(),
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    app.is_loading = true;
+                    app.auto_scroll = true;
+
+                    // Start the reasoning loop - ask AI what to do
+                    let reasoning_prompt = agent.create_reasoning_prompt();
+                    let client = app.http_client.clone();
+                    let model = app.current_model.clone();
+                    let base_url = app.ollama_base_url.clone();
+                    let auth_config = app.config.auth_method.clone();
+                    let auth_enabled = app.config.auth_enabled;
+
+                    tokio::spawn(async move {
+                        // Simple request without streaming for JSON responses
+                        let messages = vec![models::Message {
+                            role: models::Role::User,
+                            content: reasoning_prompt,
+                            timestamp: chrono::Utc::now(),
+                        }];
+
+                        // Collect the full response
+                        let (temp_tx, mut temp_rx) = mpsc::channel::<AppEvent>(32);
+
+                        let client_clone = client.clone();
+                        tokio::spawn(async move {
+                            ollama::stream_chat_request(
+                                &client_clone,
+                                &base_url,
+                                &model,
+                                &messages,
+                                auth_enabled,
+                                auth_config.as_ref(),
+                                None,  // No system prompt, it's in the message
+                                temp_tx,
+                            )
+                            .await;
+                        });
+
+                        // Collect full response
+                        let mut full_response = String::new();
+                        while let Some(event) = temp_rx.recv().await {
+                            match event {
+                                AppEvent::OllamaChunk(Ok(chunk)) => {
+                                    full_response.push_str(&chunk);
+                                }
+                                AppEvent::OllamaDone => {
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        // Send the reasoning result
+                        tx.send(AppEvent::AutonomousReasoningComplete(Ok(full_response))).await.ok();
+                    });
+                }
+            }
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+        }
+        KeyCode::Char(c) => {
+            app.input.push(c);
         }
         _ => {}
     }

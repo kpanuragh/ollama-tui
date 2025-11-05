@@ -6,7 +6,7 @@ use reqwest::Client;
 use rusqlite::Connection;
 use textwrap::wrap;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum AppMode {
     Normal,         // Vim normal mode
     Insert,         // Vim insert mode for typing messages
@@ -16,6 +16,7 @@ pub enum AppMode {
     SessionSelection,
     Agent,          // Agent mode for typing requests
     AgentApproval,  // Agent approval mode for reviewing commands
+    Autonomous,     // Autonomous agent mode - continuous reasoning loop
     Help,           // Help popup mode
 }
 
@@ -50,6 +51,8 @@ pub struct AppState {
     pub pending_commands: Vec<models::AgentCommand>,
     pub command_approval_index: Option<usize>,
     pub agent_system_prompt: String,
+    // Autonomous agent
+    pub autonomous_agent: Option<crate::autonomous_agent::AutonomousAgent>,
 }
 
 impl AppState {
@@ -132,6 +135,8 @@ impl AppState {
             pending_commands: Vec::new(),
             command_approval_index: None,
             agent_system_prompt: String::new(),
+            // Initialize autonomous agent
+            autonomous_agent: None,
         })
     }
 
@@ -388,6 +393,27 @@ impl AppState {
                 self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
 
                 // Reset chat UI state
+                self.chat_list_state = ListState::default();
+                self.auto_scroll = true;
+            }
+            "auto" => {
+                // Autonomous agent mode - continuous reasoning loop
+                let messages = self.current_messages_mut();
+                messages.clear();
+                messages.push(models::Message {
+                    role: models::Role::Assistant,
+                    content: "🤖 Autonomous Agent Mode activated!\n\nI will work continuously to achieve your goal through:\n1. Reasoning about the task\n2. Executing commands\n3. Analyzing outputs\n4. Deciding next steps\n5. Repeating until goal is achieved\n\nTell me your goal, and I'll work autonomously to accomplish it.".to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+
+                // Initialize autonomous agent
+                self.autonomous_agent = Some(crate::autonomous_agent::AutonomousAgent::new());
+
+                // Enter autonomous mode
+                self.mode = AppMode::Autonomous;
+                self.agent_mode = false;  // Disable regular agent mode
+
+                // Reset UI state
                 self.chat_list_state = ListState::default();
                 self.auto_scroll = true;
             }

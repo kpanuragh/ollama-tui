@@ -1,5 +1,6 @@
 mod agent;
 mod app;
+mod autonomous_agent;
 mod config;
 mod db;
 mod events;
