@@ -114,6 +114,8 @@ impl Theme {
 pub struct Message {
     pub role: Role,
     pub content: String,
+    #[serde(default = "chrono::Utc::now")]
+    pub timestamp: DateTime<chrono::Utc>,
 }
 
 #[derive(Clone, Debug)]
@@ -132,6 +134,7 @@ impl ChatSession {
             messages: vec![Message {
                 role: Role::Assistant,
                 content: "New chat started. Ask me anything!".to_string(),
+                timestamp: chrono::Utc::now(),
             }],
             created_at: chrono::Utc::now(),
         };

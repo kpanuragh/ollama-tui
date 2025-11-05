@@ -9,47 +9,56 @@ use ratatui::{
 };
 use textwrap::wrap;
 use unicode_width::UnicodeWidthStr;
+use chrono::Timelike;
 
 #[allow(dead_code)]
 pub fn get_chat_area(f_area: Rect) -> Rect {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
         .split(f_area);
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3), Constraint::Length(1)].as_ref())
+        .constraints([Constraint::Min(0), Constraint::Length(4), Constraint::Length(2)].as_ref())
         .split(main_chunks[0]);
     left_chunks[0]
 }
 
 pub fn ui(f: &mut Frame, app: &mut AppState) {
-
+    // Use modern 70/30 split instead of 75/25 for better balance
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
         .split(f.area());
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3), Constraint::Length(1)].as_ref())
+        .constraints([Constraint::Min(0), Constraint::Length(4), Constraint::Length(2)].as_ref())
         .split(main_chunks[0]);
 
-    let chat_border_style = Style::default().fg(app.config.theme.parse_color(&app.config.theme.chat_border_color));
+    // Modern gradient-like border styling
+    let chat_border_style = Style::default()
+        .fg(app.config.theme.parse_color(&app.config.theme.chat_border_color))
+        .add_modifier(Modifier::BOLD);
+
     let sessions_border_style = if app.mode == AppMode::SessionSelection {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::LightCyan)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color))
+        Style::default()
+            .fg(app.config.theme.parse_color(&app.config.theme.sessions_border_color))
     };
 
+    // Modern session panel title with icons
     let sessions_title = if app.mode == AppMode::SessionSelection {
-        format!("Sessions ({}/{}) [j/k:navigate | Enter:select | d:delete | ESC:exit]", 
-            app.current_session_index + 1, 
+        format!("📋 Sessions ({}/{}) ⌨",
+            app.current_session_index + 1,
             app.sessions.len())
     } else {
-        format!("Sessions ({}/{}) [:n | :s | :d]", 
-            app.current_session_index + 1, 
+        format!("📋 Sessions ({}/{})",
+            app.current_session_index + 1,
             app.sessions.len())
     };
 
@@ -61,75 +70,123 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     } else {
         None
     };
-    let chat_list_items = render_messages_as_list(&messages, left_chunks[0].width, &theme, visual_selection);
-    
+    let chat_list_items = render_modern_messages(&messages, left_chunks[0].width, &theme, visual_selection);
+
+    // Modern chat title with model info and status
+    let chat_title = format!(
+        "💬 Chat - {} {} {}",
+        app.current_model,
+        if app.is_loading { "🔄" } else { "" },
+        if app.agent_mode { "🤖" } else { "" }
+    );
+
     let chat_list = List::new(chat_list_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Chat History (↑↓ to scroll, PgUp/PgDn to page)")
-                .border_style(chat_border_style),
+                .title(chat_title)
+                .title_style(Style::default().add_modifier(Modifier::BOLD))
+                .border_style(chat_border_style)
+                .border_type(ratatui::widgets::BorderType::Rounded),
         )
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::DIM))
-        .highlight_symbol("  ");  // Less intrusive highlight
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(40, 40, 60))
+                .add_modifier(Modifier::BOLD)
+        )
+        .highlight_symbol("▶ ");
     f.render_stateful_widget(chat_list, left_chunks[0], &mut app.chat_list_state);
 
-    let input_title = match app.mode {
-        AppMode::Normal => "-- NORMAL --",
-        AppMode::Insert => "-- INSERT --",
-        AppMode::Command => "-- COMMAND --",
-        AppMode::Visual => "-- VISUAL --",
-        AppMode::ModelSelection => "-- MODEL SELECTION --",
-        AppMode::SessionSelection => "-- SESSION SELECTION --",
-        AppMode::Agent => "-- AGENT --",
-        AppMode::AgentApproval => "-- AGENT APPROVAL --",
-        AppMode::Help => "-- HELP --",
+    // Modern mode indicator with better styling
+    let (mode_text, mode_style, mode_icon) = match app.mode {
+        AppMode::Normal => ("NORMAL", Style::default().fg(Color::LightGreen), "🟢"),
+        AppMode::Insert => ("INSERT", Style::default().fg(Color::LightBlue), "✏️"),
+        AppMode::Command => ("COMMAND", Style::default().fg(Color::LightYellow), "⚡"),
+        AppMode::Visual => ("VISUAL", Style::default().fg(Color::LightMagenta), "👁️"),
+        AppMode::ModelSelection => ("MODEL", Style::default().fg(Color::LightCyan), "🤖"),
+        AppMode::SessionSelection => ("SESSION", Style::default().fg(Color::LightCyan), "📋"),
+        AppMode::Agent => ("AGENT", Style::default().fg(Color::LightRed), "🤖"),
+        AppMode::AgentApproval => ("APPROVE", Style::default().fg(Color::LightYellow), "✅"),
+        AppMode::Help => ("HELP", Style::default().fg(Color::White), "❓"),
     };
+
+    let input_title = format!("{} {} {}", mode_icon, mode_text, mode_icon);
 
     let input_text = match app.mode {
         AppMode::Command => format!(":{}", app.vim_command),
         _ => {
             if app.is_loading {
-                "Thinking...".to_string()
+                "🔄 Thinking...".to_string()
             } else {
                 app.input.clone()
             }
         }
     };
-    
+
+    // Modern input box with better styling
     let input_paragraph = Paragraph::new(input_text.as_str())
-        .block(Block::default().borders(Borders::ALL).title(input_title));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(input_title)
+                .title_style(mode_style.add_modifier(Modifier::BOLD))
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(mode_style)
+        )
+        .wrap(Wrap { trim: false });
     f.render_widget(input_paragraph, left_chunks[1]);
 
+    // Enhanced status bar with more information and better formatting
     let status_bar_text = if let Some(ref msg) = app.status_message {
-        msg.clone()
+        format!("ℹ️  {}", msg)
     } else {
         match app.mode {
-            AppMode::Normal => format!(
-                "Model: {} | ? for help | i:insert | v:visual | :q quit | :n new | :m models | :s sessions",
-                app.current_model
-            ),
+            AppMode::Normal => {
+                let session_info = format!("Session {}/{}", app.current_session_index + 1, app.sessions.len());
+                let msg_count = app.current_messages().len();
+                format!(
+                    "📊 {} | 💬 {} msgs | 🤖 {} | ⌨ ? help | i insert | v visual | :q quit",
+                    session_info, msg_count, app.current_model
+                )
+            },
             AppMode::Insert => format!(
-                "Model: {} | ESC to normal mode | Enter to send",
+                "📝 Typing... | ESC→normal | Enter→send | Model: {}",
                 app.current_model
             ),
-            AppMode::Command => "Type command and press Enter".to_string(),
-            AppMode::Visual => "VISUAL: j/k to extend selection | y to copy | ESC to exit".to_string(),
-            AppMode::SessionSelection => "SESSION SELECTION: j/k to navigate | Enter to select | d to delete | ESC to exit".to_string(),
-            _ => format!("Model: {} | ESC to normal mode", app.current_model),
+            AppMode::Agent => format!(
+                "🤖 Agent Mode | ESC→normal | Enter→send | Commands will need approval"
+            ),
+            AppMode::Command => "⚡ Type command and press Enter | ESC to cancel".to_string(),
+            AppMode::Visual => "👁️ VISUAL | j/k extend | y copy | ESC exit".to_string(),
+            AppMode::SessionSelection => "📋 SESSION | j/k navigate | Enter select | d delete | ESC exit".to_string(),
+            AppMode::AgentApproval => "✅ APPROVE | j/k navigate | y approve | n reject | a all | x execute".to_string(),
+            _ => format!("Model: {} | ESC→normal", app.current_model),
         }
     };
-    let status_bar = Paragraph::new(status_bar_text).style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.status_bar_color)));
+
+    let status_bar = Paragraph::new(status_bar_text)
+        .style(
+            Style::default()
+                .fg(app.config.theme.parse_color(&app.config.theme.status_bar_color))
+                .bg(Color::Rgb(20, 20, 30))
+        )
+        .wrap(Wrap { trim: false });
     f.render_widget(status_bar, left_chunks[2]);
 
     // Set cursor position based on mode
     match app.mode {
         AppMode::Insert => {
             if !app.is_loading {
-                f.set_cursor_position((
-                    left_chunks[1].x + app.input.width() as u16 + 1,
-                    left_chunks[1].y + 1,
-                ));
+                let cursor_x = left_chunks[1].x + app.input.width() as u16 + 1;
+                let cursor_y = left_chunks[1].y + 1 + (app.input.len() as u16 / (left_chunks[1].width.saturating_sub(2)));
+                f.set_cursor_position((cursor_x.min(left_chunks[1].right().saturating_sub(2)), cursor_y.min(left_chunks[1].bottom().saturating_sub(2))));
+            }
+        }
+        AppMode::Agent => {
+            if !app.is_loading {
+                let cursor_x = left_chunks[1].x + app.input.width() as u16 + 1;
+                let cursor_y = left_chunks[1].y + 1;
+                f.set_cursor_position((cursor_x.min(left_chunks[1].right().saturating_sub(2)), cursor_y.min(left_chunks[1].bottom().saturating_sub(2))));
             }
         }
         AppMode::Command => {
@@ -141,30 +198,38 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
         _ => {}
     }
 
+    // Modern session list with better visual indicators
     let session_items: Vec<ListItem> = app
         .sessions
         .iter()
-        .map(|s| {
-            let style = if s.id == app.sessions[app.current_session_index].id {
+        .enumerate()
+        .map(|(idx, s)| {
+            let is_current = s.id == app.sessions[app.current_session_index].id;
+            let icon = if is_current { "▶" } else { " " };
+            let msg_count = s.messages.len();
+
+            let style = if is_current {
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(Color::LightCyan)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
+                Style::default().fg(Color::Gray)
             };
-            ListItem::new(s.name.as_str()).style(style)
+
+            let session_text = format!("{} {} ({} msgs)", icon, s.name, msg_count);
+            ListItem::new(session_text).style(style)
         })
         .collect();
 
     let sessions_highlight_style = if app.mode == AppMode::SessionSelection {
         Style::default()
-            .bg(Color::Yellow)
+            .bg(Color::LightCyan)
             .fg(Color::Black)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
-            .fg(app.config.theme.parse_color(&app.config.theme.highlight_color))
+            .bg(Color::Rgb(40, 40, 60))
+            .fg(Color::White)
     };
 
     let sessions_list = List::new(session_items)
@@ -172,10 +237,12 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(sessions_title)
-                .border_style(sessions_border_style),
+                .title_style(Style::default().add_modifier(Modifier::BOLD))
+                .border_style(sessions_border_style)
+                .border_type(ratatui::widgets::BorderType::Rounded),
         )
         .highlight_style(sessions_highlight_style)
-        .highlight_symbol(">> ");
+        .highlight_symbol("▶ ");
 
     f.render_stateful_widget(sessions_list, main_chunks[1], &mut app.session_list_state);
 
@@ -184,7 +251,7 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
     }
 
     if app.mode == AppMode::AgentApproval {
-        render_agent_approval_popup(f, app);
+        render_modern_agent_approval_popup(f, app);
     }
 
     if app.mode == AppMode::Help {
@@ -195,12 +262,14 @@ pub fn ui(f: &mut Frame, app: &mut AppState) {
 fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     let popup_area = centered_rect(60, 50, f.area());
     let block = Block::default()
-        .title("Select a Model (Enter to confirm, Esc/q to cancel)")
+        .title("🤖 Select Model")
+        .title_style(Style::default().add_modifier(Modifier::BOLD))
         .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.popup_border_color)));
 
     if app.is_fetching_models {
-        let text = Paragraph::new("Fetching models...")
+        let text = Paragraph::new("🔄 Fetching models...")
             .alignment(Alignment::Center)
             .block(block);
         f.render_widget(Clear, popup_area);
@@ -210,7 +279,7 @@ fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
 
     if app.available_models.is_empty() {
         let text = Paragraph::new(
-            "No models found. Ensure Ollama is running and models are pulled. Press 'q' to close.",
+            "⚠️  No models found\n\nEnsure Ollama is running and models are pulled.\n\nPress 'q' to close.",
         )
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true })
@@ -223,17 +292,26 @@ fn render_model_selection_popup(f: &mut Frame, app: &mut AppState) {
     let items: Vec<ListItem> = app
         .available_models
         .iter()
-        .map(|s| ListItem::new(s.as_str()))
+        .map(|model| {
+            let is_current = model == &app.current_model;
+            let icon = if is_current { "●" } else { "○" };
+            ListItem::new(format!(" {} {}", icon, model))
+                .style(if is_current {
+                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                })
+        })
         .collect();
+
     let list = List::new(items)
         .block(block)
         .highlight_style(
             Style::default()
-                .bg(app.config.theme.parse_color(&app.config.theme.highlight_bg_color))
-                .fg(app.config.theme.parse_color(&app.config.theme.highlight_color))
+                .bg(Color::Rgb(40, 60, 100))
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(">> ");
+        .highlight_symbol("▶ ");
 
     f.render_widget(Clear, popup_area);
     f.render_stateful_widget(list, popup_area, &mut app.model_list_state);
@@ -258,148 +336,218 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-#[allow(dead_code)]
-fn render_messages<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme) -> Text<'a> {
-    let mut lines = Vec::new();
-    for message in messages {
-        let style = match message.role {
-            models::Role::User => Style::default().fg(theme.parse_color(&theme.user_message_color)),
-            models::Role::Assistant => Style::default().fg(theme.parse_color(&theme.assistant_message_color)),
-        };
-        let prefix = match message.role {
-            models::Role::User => "You: ",
-            models::Role::Assistant => "AI: ",
-        };
-        let wrapped_content = wrap(&message.content, (width as usize).saturating_sub(6));
-        for (i, line_content) in wrapped_content.iter().enumerate() {
-            if i == 0 {
-                lines.push(Line::from(vec![
-                    Span::styled(prefix, style.add_modifier(Modifier::BOLD)),
-                    Span::styled(line_content.to_string(), style),
-                ]));
-            } else {
-                lines.push(Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(line_content.to_string(), style),
-                ]));
-            }
-        }
-        if !message.content.is_empty() {
-            lines.push(Line::from(""));
-        }
-    }
-    Text::from(lines)
-}
-
-fn render_messages_as_list<'a>(messages: &'a [models::Message], width: u16, theme: &crate::models::Theme, visual_selection: Option<(usize, usize)>) -> Vec<ListItem<'a>> {
+// Modern message rendering with timestamps and better styling
+fn render_modern_messages<'a>(
+    messages: &'a [models::Message],
+    width: u16,
+    theme: &crate::models::Theme,
+    visual_selection: Option<(usize, usize)>
+) -> Vec<ListItem<'a>> {
     let mut list_items = Vec::new();
     let mut line_index = 0;
-    
-    for message in messages {
-        let style = match message.role {
-            models::Role::User => Style::default().fg(theme.parse_color(&theme.user_message_color)),
-            models::Role::Assistant => Style::default().fg(theme.parse_color(&theme.assistant_message_color)),
+
+    for (msg_idx, message) in messages.iter().enumerate() {
+        let (role_style, role_icon, role_name) = match message.role {
+            models::Role::User => (
+                Style::default().fg(theme.parse_color(&theme.user_message_color)),
+                "👤",
+                "You"
+            ),
+            models::Role::Assistant => (
+                Style::default().fg(theme.parse_color(&theme.assistant_message_color)),
+                "🤖",
+                "AI"
+            ),
         };
-        let prefix = match message.role {
-            models::Role::User => "You: ",
-            models::Role::Assistant => "AI: ",
-        };
-        
-        let wrapped_content = wrap(&message.content, (width as usize).saturating_sub(6));
-        
-        for (i, line_content) in wrapped_content.iter().enumerate() {
-            // Check if this line is within the visual selection
+
+        // Format timestamp as HH:MM
+        let time_str = format!(
+            "{:02}:{:02}",
+            message.timestamp.hour(),
+            message.timestamp.minute()
+        );
+
+        // Header line with icon, role, and timestamp
+        let header = format!("{} {} • {}", role_icon, role_name, time_str);
+        let header_style = role_style.add_modifier(Modifier::BOLD);
+
+        list_items.push(ListItem::new(Line::from(vec![
+            Span::styled(header, header_style),
+        ])));
+        line_index += 1;
+
+        // Message content with proper wrapping
+        let wrapped_content = wrap(&message.content, (width as usize).saturating_sub(4));
+
+        for line_content in wrapped_content.iter() {
             let line_style = if let Some((start, end)) = visual_selection {
                 if line_index >= start && line_index <= end {
-                    style.bg(Color::Blue).add_modifier(Modifier::REVERSED)
+                    role_style.bg(Color::Blue).add_modifier(Modifier::REVERSED)
                 } else {
-                    style
+                    role_style
                 }
             } else {
-                style
+                role_style
             };
-            
-            if i == 0 {
-                // First line with prefix
-                let line = Line::from(vec![
-                    Span::styled(prefix, line_style.add_modifier(Modifier::BOLD)),
-                    Span::styled(line_content.to_string(), line_style),
-                ]);
-                list_items.push(ListItem::new(line));
-            } else {
-                // Continuation lines with indentation
-                let line = Line::from(vec![
-                    Span::raw("    "),
-                    Span::styled(line_content.to_string(), line_style),
-                ]);
-                list_items.push(ListItem::new(line));
-            }
+
+            let line = Line::from(vec![
+                Span::raw("  "),
+                Span::styled(line_content.to_string(), line_style),
+            ]);
+            list_items.push(ListItem::new(line));
             line_index += 1;
         }
-        
-        // Add empty line after each message if content is not empty
-        if !message.content.is_empty() {
-            // Check if the empty line is within the visual selection
-            let empty_line_style = if let Some((start, end)) = visual_selection {
-                if line_index >= start && line_index <= end {
-                    Style::default().bg(Color::Blue).add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default()
-                }
-            } else {
-                Style::default()
-            };
-            
-            list_items.push(ListItem::new(Line::from("")).style(empty_line_style));
+
+        // Add spacing between messages (except after the last one)
+        if msg_idx < messages.len() - 1 {
+            list_items.push(ListItem::new(Line::from("")));
             line_index += 1;
         }
     }
-    
+
     list_items
 }
 
-fn render_help_popup(f: &mut Frame, app: &mut AppState) {
-    let popup_area = centered_rect(80, 70, f.area());
+// Modern agent approval popup with enhanced visuals
+fn render_modern_agent_approval_popup(f: &mut Frame, app: &AppState) {
+    let popup_area = centered_rect(85, 75, f.area());
+
     let block = Block::default()
-        .title("Help - Vim-style Commands (Press ? or ESC to close)")
+        .title("🤖 Agent Command Approval")
+        .title_style(Style::default().add_modifier(Modifier::BOLD).fg(Color::LightCyan))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.config.theme.parse_color(&app.config.theme.popup_border_color)));
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::LightYellow));
+
+    if app.pending_commands.is_empty() {
+        let text = Paragraph::new("ℹ️  No commands to approve")
+            .alignment(Alignment::Center)
+            .block(block);
+        f.render_widget(Clear, popup_area);
+        f.render_widget(text, popup_area);
+        return;
+    }
+
+    // Create command list items with rich formatting
+    let items: Vec<ListItem> = app
+        .pending_commands
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            let (status_icon, status_text) = if cmd.executed {
+                if cmd.error.is_some() {
+                    ("❌", "FAILED")
+                } else {
+                    ("✅", "DONE")
+                }
+            } else if cmd.approved {
+                ("✓", "APPROVED")
+            } else {
+                ("○", "PENDING")
+            };
+
+            let mut style = if cmd.executed {
+                if cmd.error.is_some() {
+                    Style::default().fg(Color::Red)
+                } else {
+                    Style::default().fg(Color::Green).add_modifier(Modifier::DIM)
+                }
+            } else if cmd.approved {
+                Style::default().fg(Color::LightGreen)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            // Highlight current selection
+            if Some(i) == app.command_approval_index {
+                style = style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+            }
+
+            let command_display = if cmd.command.len() > 80 {
+                format!("{}...", &cmd.command[..77])
+            } else {
+                cmd.command.clone()
+            };
+
+            ListItem::new(format!(
+                " {} [{}] {}",
+                status_icon,
+                status_text,
+                command_display
+            )).style(style)
+        })
+        .collect();
+
+    // Create help text
+    let help_text = " ⌨  j/k:navigate | y:approve | n:reject | a:all | r:none | x/Enter:execute | ESC:cancel ";
+    let help_style = Style::default().bg(Color::Rgb(40, 40, 60)).fg(Color::White);
+
+    // Split popup into command list and help bar
+    let popup_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(popup_area);
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(
+            Style::default()
+                .bg(Color::Rgb(60, 60, 100))
+                .add_modifier(Modifier::BOLD)
+        )
+        .highlight_symbol("▶ ");
+
+    let help_bar = Paragraph::new(help_text)
+        .style(help_style)
+        .alignment(Alignment::Center);
+
+    f.render_widget(Clear, popup_area);
+
+    // Create a ListState for rendering
+    let mut list_state = ratatui::widgets::ListState::default();
+    list_state.select(app.command_approval_index);
+
+    f.render_stateful_widget(list, popup_chunks[0], &mut list_state);
+    f.render_widget(help_bar, popup_chunks[1]);
+}
+
+fn render_help_popup(f: &mut Frame, app: &mut AppState) {
+    let popup_area = centered_rect(80, 85, f.area());
+    let block = Block::default()
+        .title("❓ Ollama TUI - Help Guide")
+        .title_style(Style::default().add_modifier(Modifier::BOLD))
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(Color::LightCyan));
 
     let help_text = vec![
-        "VIM-STYLE NAVIGATION AND COMMANDS",
-        "",
-        "MODES:",
-        "  Normal Mode    - Navigate and issue commands",
-        "  Insert Mode    - Type messages",
-        "  Command Mode   - Enter vim-style commands",
-        "",
-        "NORMAL MODE KEYS:",
-        "  i              - Enter insert mode",
-        "  o/O            - Enter insert mode (clear input)",
-        "  v              - Enter visual mode (select text)",
+        "=== 🎮 NORMAL MODE KEYS ===",
+        "  i              - Enter insert mode (type messages)",
+        "  o/O            - Enter insert mode (clear input first)",
+        "  v              - Enter visual mode (select text to copy)",
         "  :              - Enter command mode",
         "  ?              - Show this help",
         "  q              - Quick quit",
-        "  j/↓            - Scroll down",
-        "  k/↑            - Scroll up",
-        "  g              - Go to top",
-        "  G              - Go to bottom",
-        "  PgUp/PgDn      - Page up/down",
+        "  j/k or ↑/↓     - Scroll chat up/down",
+        "  g              - Go to top of chat",
+        "  G              - Go to bottom of chat",
+        "  PgUp/PgDn      - Page up/down through chat",
         "",
-        "INSERT MODE KEYS:",
+        "=== ✏️  INSERT MODE KEYS ===",
         "  ESC            - Return to normal mode",
         "  Enter          - Send message",
         "  Backspace      - Delete character",
+        "  *Any character - Type message",
         "",
-        "VISUAL MODE KEYS:",
+        "=== 👁️  VISUAL MODE KEYS ===",
         "  j/k or ↑/↓     - Extend selection",
         "  g              - Go to top",
         "  G              - Go to bottom",
         "  PgUp/PgDn      - Page up/down",
         "  y              - Copy selection to clipboard",
-        "  ESC            - Return to normal mode",
+        "  ESC/q          - Return to normal mode",
         "",
-        "COMMAND MODE COMMANDS:",
+        "=== ⚡ COMMAND MODE COMMANDS ===",
         "  :q             - Quit application",
         "  :w             - Save current session",
         "  :wq            - Save and quit",
@@ -413,12 +561,12 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
         "  :d<N>          - Delete session N",
         "  :b<N>          - Switch to session N",
         "",
-        "SPECIAL MODES:",
-        "  Model Selection - Use j/k or ↑/↓ to navigate, Enter to select",
-        "  Session Selection - Use j/k or ↑/↓ to navigate, Enter to select, d to delete",
-        "  Agent Mode     - Interactive AI agent (experimental)",
+        "=== 🤖 AGENT MODE ===",
+        "  Ask AI to suggest shell commands",
+        "  Commands are parsed from code blocks",
+        "  Review and approve before execution",
         "",
-        "AGENT APPROVAL MODE KEYS:",
+        "=== ✅ AGENT APPROVAL MODE KEYS ===",
         "  j/k or ↑/↓     - Navigate commands",
         "  y              - Approve current command",
         "  n              - Reject current command",
@@ -426,6 +574,12 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
         "  r              - Reject all commands",
         "  x or Enter     - Execute approved commands",
         "  ESC or q       - Cancel and return to agent mode",
+        "",
+        "=== 📋 SPECIAL MODES ===",
+        "  Model Selection - Use j/k or ↑/↓ to navigate, Enter to select",
+        "  Session Selection - Use j/k or ↑/↓ to navigate, Enter to select, d to delete",
+        "",
+        "Press ESC or q to close this help",
     ];
 
     let help_paragraph = Paragraph::new(help_text.join("\n"))
@@ -435,65 +589,4 @@ fn render_help_popup(f: &mut Frame, app: &mut AppState) {
 
     f.render_widget(Clear, popup_area);
     f.render_widget(help_paragraph, popup_area);
-}
-
-fn render_agent_approval_popup(f: &mut Frame, app: &AppState) {
-    let popup_area = centered_rect(80, 70, f.area());
-    let block = Block::default()
-        .title("Agent Command Approval [j/k:navigate | y:approve | n:reject | a:approve all | x/Enter:execute | ESC:cancel]")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
-
-    if app.pending_commands.is_empty() {
-        let text = Paragraph::new("No commands to approve")
-            .alignment(Alignment::Center)
-            .block(block);
-        f.render_widget(Clear, popup_area);
-        f.render_widget(text, popup_area);
-        return;
-    }
-
-    let items: Vec<ListItem> = app
-        .pending_commands
-        .iter()
-        .enumerate()
-        .map(|(i, cmd)| {
-            let status = if cmd.approved {
-                "✓ "
-            } else {
-                "✗ "
-            };
-
-            let mut style = Style::default();
-            if cmd.approved {
-                style = style.fg(Color::Green);
-            } else {
-                style = style.fg(Color::Red);
-            }
-
-            // Highlight current selection
-            if Some(i) == app.command_approval_index {
-                style = style.add_modifier(Modifier::BOLD);
-            }
-
-            ListItem::new(format!("{}{}", status, cmd.command)).style(style)
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
-        )
-        .highlight_symbol(">> ");
-
-    f.render_widget(Clear, popup_area);
-
-    // Create a ListState for rendering
-    let mut list_state = ratatui::widgets::ListState::default();
-    list_state.select(app.command_approval_index);
-
-    f.render_stateful_widget(list, popup_area, &mut list_state);
 }

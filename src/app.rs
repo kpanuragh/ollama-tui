@@ -161,6 +161,7 @@ impl AppState {
         messages.push(models::Message {
             role: models::Role::Assistant,
             content: "History Cleared.".to_string(),
+            timestamp: chrono::Utc::now(),
         });
         self.chat_list_state = ListState::default(); // Reset chat list state
         Ok(())

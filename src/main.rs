@@ -201,6 +201,7 @@ async fn main() -> Result<()> {
                 app_state.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: format!("Error fetching models: {}. Is Ollama running?", e),
+                    timestamp: chrono::Utc::now(),
                 });
             }
             Some(events::AppEvent::AgentCommands(commands)) => {
@@ -221,6 +222,7 @@ async fn main() -> Result<()> {
                             app_state.current_messages_mut().push(models::Message {
                                 role: models::Role::Assistant,
                                 content: format!("Command executed successfully:\n```\n{}\n```\n\nOutput:\n```\n{}\n```", cmd_command, output),
+                                timestamp: chrono::Utc::now(),
                             });
                         }
                         Err(error) => {
@@ -228,6 +230,7 @@ async fn main() -> Result<()> {
                             app_state.current_messages_mut().push(models::Message {
                                 role: models::Role::Assistant,
                                 content: format!("Command failed:\n```\n{}\n```\n\nError:\n```\n{}\n```", cmd_command, error),
+                                timestamp: chrono::Utc::now(),
                             });
                         }
                     }

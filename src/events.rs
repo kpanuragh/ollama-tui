@@ -147,10 +147,12 @@ async fn handle_insert_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
                     content: user_input,
+                    timestamp: chrono::Utc::now(),
                 });
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: String::new(),
+                    timestamp: chrono::Utc::now(),
                 });
 
                 app.is_loading = true;
@@ -277,12 +279,14 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
                     content: input_content,
+                    timestamp: chrono::Utc::now(),
                 });
                 app.input.clear();
 
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: String::new(),
+                    timestamp: chrono::Utc::now(),
                 });
 
                 app.is_loading = true;
