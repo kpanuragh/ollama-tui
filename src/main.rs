@@ -1,5 +1,6 @@
 mod agent;
 mod app;
+mod autonomous_agent;
 mod config;
 mod db;
 mod events;
@@ -163,11 +164,10 @@ async fn main() -> Result<()> {
                 if app_state.agent_mode {
                     if let Some(last_message) = app_state.current_messages().last() {
                         if last_message.role == models::Role::Assistant {
-                            // TODO: Parse commands from response when agent module is implemented
-                            // let commands = agent::Agent::parse_commands_from_response(&last_message.content);
-                            // if !commands.is_empty() {
-                            //     tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
-                            // }
+                            let commands = agent::Agent::parse_commands_from_response(&last_message.content);
+                            if !commands.is_empty() {
+                                tx.send(events::AppEvent::AgentCommands(commands)).await.ok();
+                            }
                         }
                     }
                 }
@@ -202,12 +202,14 @@ async fn main() -> Result<()> {
                 app_state.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: format!("Error fetching models: {}. Is Ollama running?", e),
+                    timestamp: chrono::Utc::now(),
                 });
             }
             Some(events::AppEvent::AgentCommands(commands)) => {
                 app_state.pending_commands = commands;
                 if !app_state.pending_commands.is_empty() {
                     app_state.command_approval_index = Some(0);
+                    app_state.mode = app::AppMode::AgentApproval;
                 }
             }
             Some(events::AppEvent::CommandExecuted(index, result)) => {
@@ -221,6 +223,7 @@ async fn main() -> Result<()> {
                             app_state.current_messages_mut().push(models::Message {
                                 role: models::Role::Assistant,
                                 content: format!("Command executed successfully:\n```\n{}\n```\n\nOutput:\n```\n{}\n```", cmd_command, output),
+                                timestamp: chrono::Utc::now(),
                             });
                         }
                         Err(error) => {
@@ -228,8 +231,342 @@ async fn main() -> Result<()> {
                             app_state.current_messages_mut().push(models::Message {
                                 role: models::Role::Assistant,
                                 content: format!("Command failed:\n```\n{}\n```\n\nError:\n```\n{}\n```", cmd_command, error),
+                                timestamp: chrono::Utc::now(),
                             });
                         }
+                    }
+                }
+            }
+            Some(events::AppEvent::AutonomousReasoningComplete(result)) => {
+                app_state.is_loading = false;
+
+                match result {
+                    Ok(json_response) => {
+                        // Parse the JSON response from the AI
+                        use serde_json::Value;
+
+                        // Try to extract JSON from response
+                        let json_str = if let Some(start) = json_response.find('{') {
+                            if let Some(end) = json_response.rfind('}') {
+                                &json_response[start..=end]
+                            } else {
+                                &json_response
+                            }
+                        } else {
+                            &json_response
+                        };
+
+                        match serde_json::from_str::<Value>(json_str) {
+                            Ok(json) => {
+                                let reasoning = json.get("reasoning")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("No reasoning provided");
+                                let action = json.get("action")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("execute");
+                                let command = json.get("command")
+                                    .and_then(|v| v.as_str());
+
+                                // Show reasoning to user
+                                app_state.current_messages_mut().push(models::Message {
+                                    role: models::Role::Assistant,
+                                    content: format!("💭 **Reasoning**: {}", reasoning),
+                                    timestamp: chrono::Utc::now(),
+                                });
+
+                                match action {
+                                    "goal_achieved" => {
+                                        app_state.current_messages_mut().push(models::Message {
+                                            role: models::Role::Assistant,
+                                            content: "🎉 **Goal Achieved!** The task has been completed successfully.".to_string(),
+                                            timestamp: chrono::Utc::now(),
+                                        });
+                                        if let Some(ref mut agent) = app_state.autonomous_agent {
+                                            agent.state = crate::autonomous_agent::AgentState::GoalAchieved;
+                                        }
+                                    }
+                                    "need_info" => {
+                                        app_state.current_messages_mut().push(models::Message {
+                                            role: models::Role::Assistant,
+                                            content: "ℹ️ **Need Information**: I need more information from you to proceed.".to_string(),
+                                            timestamp: chrono::Utc::now(),
+                                        });
+                                        if let Some(ref mut agent) = app_state.autonomous_agent {
+                                            agent.state = crate::autonomous_agent::AgentState::Idle;
+                                        }
+                                    }
+                                    "execute" => {
+                                        if let Some(cmd) = command {
+                                            // Check safety limit first - extract data before messages
+                                            let (should_execute, max_steps_msg) = if let Some(ref mut agent) = app_state.autonomous_agent {
+                                                agent.state = crate::autonomous_agent::AgentState::Executing;
+                                                agent.current_step += 1;
+
+                                                if agent.should_stop() {
+                                                    let msg = format!("⚠️ **Safety Limit Reached**: Maximum steps ({}) exceeded. Stopping for safety.", agent.max_steps);
+                                                    agent.state = crate::autonomous_agent::AgentState::Failed;
+                                                    (false, Some(msg))
+                                                } else {
+                                                    (true, None)
+                                                }
+                                            } else {
+                                                (true, None)
+                                            };
+
+                                            // Now we can borrow app_state to add message
+                                            if let Some(msg) = max_steps_msg {
+                                                app_state.current_messages_mut().push(models::Message {
+                                                    role: models::Role::Assistant,
+                                                    content: msg,
+                                                    timestamp: chrono::Utc::now(),
+                                                });
+                                            }
+
+                                            if should_execute {
+                                                // Show command to user
+                                                app_state.current_messages_mut().push(models::Message {
+                                                    role: models::Role::Assistant,
+                                                    content: format!("⚡ **Executing**: `{}`", cmd),
+                                                    timestamp: chrono::Utc::now(),
+                                                });
+
+                                                // Execute the command
+                                                let cmd_clone = cmd.to_string();
+                                                let tx_clone = tx.clone();
+                                                tokio::spawn(async move {
+                                                    use crate::agent::Agent;
+                                                    let result = Agent::execute_command(&cmd_clone).await;
+                                                    tx_clone.send(events::AppEvent::AutonomousCommandExecuted(result)).await.ok();
+                                                });
+                                            }
+                                        } else {
+                                            app_state.current_messages_mut().push(models::Message {
+                                                role: models::Role::Assistant,
+                                                content: "❌ **Error**: Action is 'execute' but no command provided.".to_string(),
+                                                timestamp: chrono::Utc::now(),
+                                            });
+                                        }
+                                    }
+                                    _ => {
+                                        app_state.current_messages_mut().push(models::Message {
+                                            role: models::Role::Assistant,
+                                            content: format!("❌ **Unknown action**: {}", action),
+                                            timestamp: chrono::Utc::now(),
+                                        });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                app_state.current_messages_mut().push(models::Message {
+                                    role: models::Role::Assistant,
+                                    content: format!("❌ **JSON Parse Error**: {}\n\nResponse: {}", e, json_response),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        app_state.current_messages_mut().push(models::Message {
+                            role: models::Role::Assistant,
+                            content: format!("❌ **Reasoning Error**: {}", e),
+                            timestamp: chrono::Utc::now(),
+                        });
+                    }
+                }
+            }
+            Some(events::AppEvent::AutonomousCommandExecuted(result)) => {
+                // Extract analysis prompt in one scope
+                let analysis_prompt = if let Some(ref mut agent) = app_state.autonomous_agent {
+                    agent.state = crate::autonomous_agent::AgentState::AnalyzingOutput;
+
+                    let (output, exit_code) = match &result {
+                        Ok(out) => (out.clone(), 0),
+                        Err(err) => (err.clone(), 1),
+                    };
+
+                    // Get the last command executed (from reasoning)
+                    let last_command = "command".to_string(); // TODO: track this properly
+                    Some((agent.create_analysis_prompt(&last_command, &output, exit_code), output))
+                } else {
+                    None
+                };
+
+                if let Some((analysis_prompt, output)) = analysis_prompt {
+                    // Show output to user
+                    app_state.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: format!("📤 **Output**:\n```\n{}\n```", output),
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    // Now ask AI to analyze this output
+                    app_state.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: "🔍 Analyzing results and deciding next step...".to_string(),
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    app_state.is_loading = true;
+
+                    let client = app_state.http_client.clone();
+                    let model = app_state.current_model.clone();
+                    let base_url = app_state.ollama_base_url.clone();
+                    let auth_config = app_state.config.auth_method.clone();
+                    let auth_enabled = app_state.config.auth_enabled;
+                    let tx_clone = tx.clone();
+
+                    tokio::spawn(async move {
+                        let messages = vec![models::Message {
+                            role: models::Role::User,
+                            content: analysis_prompt,
+                            timestamp: chrono::Utc::now(),
+                        }];
+
+                        let (temp_tx, mut temp_rx) = mpsc::channel::<events::AppEvent>(32);
+                        let client_clone = client.clone();
+
+                        tokio::spawn(async move {
+                            ollama::stream_chat_request(
+                                &client_clone,
+                                &base_url,
+                                &model,
+                                &messages,
+                                auth_enabled,
+                                auth_config.as_ref(),
+                                None,
+                                temp_tx,
+                            )
+                            .await;
+                        });
+
+                        let mut full_response = String::new();
+                        while let Some(event) = temp_rx.recv().await {
+                            match event {
+                                events::AppEvent::OllamaChunk(Ok(chunk)) => {
+                                    full_response.push_str(&chunk);
+                                }
+                                events::AppEvent::OllamaDone => break,
+                                _ => {}
+                            }
+                        }
+
+                        tx_clone.send(events::AppEvent::AutonomousAnalysisComplete(Ok(full_response))).await.ok();
+                    });
+                }
+            }
+            Some(events::AppEvent::AutonomousAnalysisComplete(result)) => {
+                app_state.is_loading = false;
+
+                match result {
+                    Ok(analysis_response) => {
+                        // Parse analysis JSON
+                        use serde_json::Value;
+
+                        let json_str = if let Some(start) = analysis_response.find('{') {
+                            if let Some(end) = analysis_response.rfind('}') {
+                                &analysis_response[start..=end]
+                            } else {
+                                &analysis_response
+                            }
+                        } else {
+                            &analysis_response
+                        };
+
+                        match serde_json::from_str::<Value>(json_str) {
+                            Ok(json) => {
+                                let analysis = json.get("analysis")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("No analysis provided");
+                                let progress = json.get("progress")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+
+                                // Show analysis
+                                app_state.current_messages_mut().push(models::Message {
+                                    role: models::Role::Assistant,
+                                    content: format!("📊 **Analysis**: {}\n\n✅ **Progress**: {}", analysis, progress),
+                                    timestamp: chrono::Utc::now(),
+                                });
+
+                                // Continue the loop - ask AI for next step
+                                // Extract reasoning prompt first
+                                let reasoning_prompt = if let Some(ref mut agent) = app_state.autonomous_agent {
+                                    agent.state = crate::autonomous_agent::AgentState::Reasoning;
+                                    Some(agent.create_reasoning_prompt())
+                                } else {
+                                    None
+                                };
+
+                                if let Some(reasoning_prompt) = reasoning_prompt {
+                                    app_state.current_messages_mut().push(models::Message {
+                                        role: models::Role::Assistant,
+                                        content: "🔄 Planning next step...".to_string(),
+                                        timestamp: chrono::Utc::now(),
+                                    });
+
+                                    app_state.is_loading = true;
+
+                                    let client = app_state.http_client.clone();
+                                    let model = app_state.current_model.clone();
+                                    let base_url = app_state.ollama_base_url.clone();
+                                    let auth_config = app_state.config.auth_method.clone();
+                                    let auth_enabled = app_state.config.auth_enabled;
+                                    let tx_clone = tx.clone();
+
+                                    tokio::spawn(async move {
+                                        let messages = vec![models::Message {
+                                            role: models::Role::User,
+                                            content: reasoning_prompt,
+                                            timestamp: chrono::Utc::now(),
+                                        }];
+
+                                        let (temp_tx, mut temp_rx) = mpsc::channel::<events::AppEvent>(32);
+                                        let client_clone = client.clone();
+
+                                        tokio::spawn(async move {
+                                            ollama::stream_chat_request(
+                                                &client_clone,
+                                                &base_url,
+                                                &model,
+                                                &messages,
+                                                auth_enabled,
+                                                auth_config.as_ref(),
+                                                None,
+                                                temp_tx,
+                                            )
+                                            .await;
+                                        });
+
+                                        let mut full_response = String::new();
+                                        while let Some(event) = temp_rx.recv().await {
+                                            match event {
+                                                events::AppEvent::OllamaChunk(Ok(chunk)) => {
+                                                    full_response.push_str(&chunk);
+                                                }
+                                                events::AppEvent::OllamaDone => break,
+                                                _ => {}
+                                            }
+                                        }
+
+                                        tx_clone.send(events::AppEvent::AutonomousReasoningComplete(Ok(full_response))).await.ok();
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                app_state.current_messages_mut().push(models::Message {
+                                    role: models::Role::Assistant,
+                                    content: format!("❌ **Analysis Parse Error**: {}", e),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        app_state.current_messages_mut().push(models::Message {
+                            role: models::Role::Assistant,
+                            content: format!("❌ **Analysis Error**: {}", e),
+                            timestamp: chrono::Utc::now(),
+                        });
                     }
                 }
             }

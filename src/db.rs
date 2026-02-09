@@ -23,6 +23,7 @@ fn setup_database(conn: &Connection) -> Result<()> {
             session_id INTEGER NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
+            timestamp TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions (id)
         );
         CREATE TABLE IF NOT EXISTS config (
@@ -31,6 +32,24 @@ fn setup_database(conn: &Connection) -> Result<()> {
         );
         COMMIT;",
     )?;
+
+    // Migration: Add timestamp column if it doesn't exist
+    let has_timestamp: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='timestamp'",
+            [],
+            |row| row.get(0),
+        )
+        .map(|count: i32| count > 0)
+        .unwrap_or(false);
+
+    if !has_timestamp {
+        conn.execute(
+            "ALTER TABLE messages ADD COLUMN timestamp TEXT",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -71,8 +90,8 @@ pub fn save_message(conn: &Connection, session_id: i64, message: &Message) -> Re
         Role::Assistant => "assistant",
     };
     conn.execute(
-        "INSERT INTO messages (session_id, role, content) VALUES (?1, ?2, ?3)",
-        params![session_id, role_str, message.content],
+        "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
+        params![session_id, role_str, message.content, message.timestamp.to_rfc3339()],
     )?;
     Ok(())
 }
@@ -112,16 +131,24 @@ pub fn load_sessions(conn: &Connection) -> Result<Vec<ChatSession>> {
 
 fn load_messages_for_session(conn: &Connection, session_id: i64) -> Result<Vec<Message>> {
     let mut stmt = conn
-        .prepare("SELECT role, content FROM messages WHERE session_id = ?1 ORDER BY id ASC")?;
+        .prepare("SELECT role, content, timestamp FROM messages WHERE session_id = ?1 ORDER BY id ASC")?;
     let message_iter = stmt.query_map(params![session_id], |row: &Row| {
         let role_str: String = row.get(0)?;
         let content: String = row.get(1)?;
+        let timestamp_str: Option<String> = row.get(2).ok();
+
         let role = if role_str == "user" {
             Role::User
         } else {
             Role::Assistant
         };
-        Ok(Message { role, content })
+
+        let timestamp = timestamp_str
+            .and_then(|ts| DateTime::parse_from_rfc3339(&ts).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+
+        Ok(Message { role, content, timestamp })
     })?;
 
     let mut messages = Vec::new();
