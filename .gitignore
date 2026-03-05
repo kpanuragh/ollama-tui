@@ -1,3 +1,17 @@
-target
-ollama-tui.sqlite
-result
+
+# Ignore Cargo lock files
+Cargo.lock
+
+# Ignore build artifacts
+/target/
+
+# Ignore IDE files
+.idea/
+
+# Ignore VSCode files
+.vscode/
+
+# Ignore temporary files
+*.swp
+*.swo
+*.bak

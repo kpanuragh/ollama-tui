@@ -385,7 +385,7 @@ async fn main() -> Result<()> {
                     };
 
                     // Get the last command executed (from reasoning)
-                    let last_command = "command".to_string(); // TODO: track this properly
+                    let last_command = "command".to_string(); 
                     Some((agent.create_analysis_prompt(&last_command, &output, exit_code), output))
                 } else {
                     None
