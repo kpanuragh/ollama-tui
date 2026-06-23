@@ -114,6 +114,8 @@ impl Theme {
 pub struct Message {
     pub role: Role,
     pub content: String,
+    #[serde(default = "chrono::Utc::now")]
+    pub timestamp: DateTime<chrono::Utc>,
 }
 
 #[derive(Clone, Debug)]
@@ -132,6 +134,7 @@ impl ChatSession {
             messages: vec![Message {
                 role: Role::Assistant,
                 content: "New chat started. Ask me anything!".to_string(),
+                timestamp: chrono::Utc::now(),
             }],
             created_at: chrono::Utc::now(),
         };
@@ -161,6 +164,8 @@ pub struct ChatRequest<'a> {
     pub model: &'a str,
     pub messages: &'a [Message],
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<&'a str>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -169,11 +174,9 @@ pub struct StreamChatResponse {
     pub done: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct AgentCommand {
     pub command: String,
-    #[allow(dead_code)]
     pub approved: bool,
     pub executed: bool,
     pub output: Option<String>,
@@ -181,7 +184,6 @@ pub struct AgentCommand {
 }
 
 impl AgentCommand {
-    #[allow(dead_code)]
     pub fn new(command: String) -> Self {
         Self {
             command,

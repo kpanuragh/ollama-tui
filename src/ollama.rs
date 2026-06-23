@@ -43,6 +43,7 @@ pub async fn stream_chat_request(
     messages: &[models::Message],
     auth_enabled: bool,
     auth_method: Option<&models::AuthMethod>,
+    system_prompt: Option<&str>,
     tx: mpsc::Sender<AppEvent>,
 ) {
     let url = format!("{}/api/chat", base_url);
@@ -50,6 +51,7 @@ pub async fn stream_chat_request(
         model,
         messages,
         stream: true,
+        system: system_prompt,
     };
 
     let mut request_builder = client.post(&url).json(&request_payload);

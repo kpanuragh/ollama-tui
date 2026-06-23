@@ -17,6 +17,7 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 - **🔐 Secure Authentication**: Support for Bearer Token and Basic authentication
 - **📱 Cross-Platform**: Runs on Linux, macOS, and Windows
 - **⌨️ Keyboard-Driven**: Complete navigation without touching the mouse
+- **🤖 Agent Mode**: AI-powered command execution with approval workflow
 
 ## 🎮 Vim-Style Interface
 
@@ -26,6 +27,8 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 - **Insert Mode** (`-- INSERT --`): Type messages and chat with AI
 - **Command Mode** (`-- COMMAND --`): Execute vim-style commands
 - **Visual Mode** (`-- VISUAL --`): Select and copy chat text
+- **Agent Mode** (`-- AGENT --`): Request AI to suggest shell commands
+- **Agent Approval Mode** (`-- AGENT APPROVAL --`): Review and approve/reject commands
 - **Help Mode** (`-- HELP --`): Comprehensive help system
 
 ### Key Bindings
@@ -74,7 +77,8 @@ A feature-rich, terminal-based user interface for interacting with [Ollama](http
 | `:c` | Clear current session |
 | `:m` | Select model |
 | `:s` | Select session |
-| `:a` | Enter agent mode |
+| `:a` | Enter agent mode (with history) |
+| `:an` | Enter agent mode (fresh, no history) |
 | `:h` or `:?` | Show help |
 | `:d` | Delete current session |
 | `:d<N>` | Delete session N |
@@ -183,6 +187,71 @@ Configuration file is automatically created at:
 }
 ```
 
+## 🤖 Agent Mode
+
+Agent mode allows the AI to suggest shell commands based on your requests, which you can then review and approve before execution.
+
+### Entering Agent Mode
+
+- **`:a`** - Agent mode with conversation history (AI remembers previous messages)
+- **`:an`** - Agent mode with fresh context (starts clean, no previous messages)
+
+Use `:an` when:
+- Previous conversation is too long or cluttered
+- Starting a completely new task
+- You want faster responses (less context to process)
+- Agent suggestions are being influenced by old context
+
+### How Agent Mode Works
+
+1. **Enter Agent Mode**: Type `:a` or `:an` from normal mode
+2. **Make a Request**: Ask the AI to perform a task (e.g., "list all files in the src directory")
+3. **AI Suggests Commands**: The AI responds with suggested shell commands in code blocks
+4. **Review & Approve**: Commands are parsed and shown in the approval interface
+5. **Execute**: Approved commands are executed and results are shown in chat
+
+**Context Awareness**: The AI automatically knows your:
+- Operating system (Linux/macOS/Windows)
+- Current directory
+- Shell environment
+- Git repository status (if applicable)
+- Git branch name (if in a repo)
+
+### Agent Approval Mode Keys
+
+| Key | Action |
+|-----|--------|
+| `j`/`k` or `↑`/`↓` | Navigate through commands |
+| `y` | Approve current command |
+| `n` | Reject current command |
+| `a` | Approve all commands |
+| `r` | Reject all commands |
+| `x` or `Enter` | Execute approved commands |
+| `ESC` or `q` | Cancel and return to agent mode |
+
+### Example Agent Mode Usage
+
+```
+User: "Show me the size of all rust files"
+AI: "Here are the commands to show rust file sizes:
+
+```bash
+find . -name "*.rs" -exec du -h {} \;
+```
+"
+
+[Approval popup appears showing the command]
+[Press 'y' to approve, then 'x' to execute]
+[Output appears in chat]
+```
+
+### Safety Features
+
+- **Explicit Approval**: No commands execute without your approval
+- **Visual Indicators**: Approved commands show ✓, rejected show ✗
+- **Command Review**: See exactly what will be executed before running
+- **Cancellation**: Press ESC at any time to cancel
+
 ## 🚀 Quick Start Guide
 
 1. **Start the application** - You'll be in Normal mode
@@ -194,6 +263,7 @@ Configuration file is automatically created at:
    - `:n` to create a new session
    - `:m` to select a different model
    - `:s` to switch between sessions
+   - `:a` to try agent mode
    - `:?` for comprehensive help
 
 ## 💡 Tips & Tricks
@@ -204,6 +274,7 @@ Configuration file is automatically created at:
 - **Quick Navigation**: Use `g` and `G` to jump to top/bottom of long chats
 - **Session Management**: Use `:b1`, `:b2`, etc. to quickly switch to specific sessions
 - **Model Switching**: Use `:m` to change AI models mid-conversation
+- **Agent Mode**: Use `:a` to let AI suggest and execute shell commands with your approval
 - **Help System**: Press `?` from Normal mode for complete command reference
 
 ## 🎨 Customization

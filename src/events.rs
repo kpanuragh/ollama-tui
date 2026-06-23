@@ -15,6 +15,10 @@ pub enum AppEvent {
     AgentCommands(Vec<models::AgentCommand>),
     #[allow(dead_code)]
     CommandExecuted(usize, Result<String, String>),
+    // Autonomous agent events
+    AutonomousReasoningComplete(Result<String, String>),  // JSON response from reasoning
+    AutonomousCommandExecuted(Result<String, String>),     // Command execution result
+    AutonomousAnalysisComplete(Result<String, String>),    // Analysis of command output
     Tick,
 }
 
@@ -27,6 +31,8 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, tx: mpsc::Sende
         AppMode::ModelSelection => handle_model_selection_mode(key, app).await,
         AppMode::SessionSelection => handle_session_selection_mode(key, app).await,
         AppMode::Agent => handle_agent_mode(key, app, tx).await,
+        AppMode::AgentApproval => handle_agent_approval_mode(key, app, tx).await,
+        AppMode::Autonomous => handle_autonomous_mode(key, app, tx).await,
         AppMode::Help => handle_help_mode(key, app).await,
     }
 }
@@ -146,10 +152,12 @@ async fn handle_insert_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
                     content: user_input,
+                    timestamp: chrono::Utc::now(),
                 });
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: String::new(),
+                    timestamp: chrono::Utc::now(),
                 });
 
                 app.is_loading = true;
@@ -171,6 +179,7 @@ async fn handle_insert_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<
                         &messages,
                         auth_enabled,
                         auth_config.as_ref(),
+                        None, // No system prompt for normal chat
                         tx,
                     )
                     .await;
@@ -276,12 +285,14 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::User,
                     content: input_content,
+                    timestamp: chrono::Utc::now(),
                 });
                 app.input.clear();
 
                 app.current_messages_mut().push(models::Message {
                     role: models::Role::Assistant,
                     content: String::new(),
+                    timestamp: chrono::Utc::now(),
                 });
 
                 app.is_loading = true;
@@ -294,6 +305,7 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                 let base_url = app.ollama_base_url.clone();
                 let auth_config = app.config.auth_method.clone();
                 let auth_enabled = app.config.auth_enabled;
+                let system_prompt = app.agent_system_prompt.clone();
 
                 tokio::spawn(async move {
                     ollama::stream_chat_request(
@@ -303,6 +315,7 @@ async fn handle_agent_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<A
                         &messages,
                         auth_enabled,
                         auth_config.as_ref(),
+                        Some(&system_prompt), // Use agent system prompt
                         tx,
                     )
                     .await;
@@ -412,3 +425,199 @@ async fn handle_visual_mode(key: KeyEvent, app: &mut AppState) -> bool {
     false
 }
 
+
+async fn handle_agent_approval_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            // Cancel and return to agent mode
+            app.mode = AppMode::Agent;
+            app.pending_commands.clear();
+            app.command_approval_index = None;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            // Move to next command
+            if let Some(current) = app.command_approval_index {
+                if current < app.pending_commands.len().saturating_sub(1) {
+                    app.command_approval_index = Some(current + 1);
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            // Move to previous command
+            if let Some(current) = app.command_approval_index {
+                if current > 0 {
+                    app.command_approval_index = Some(current - 1);
+                }
+            }
+        }
+        KeyCode::Char('y') => {
+            // Approve current command
+            if let Some(index) = app.command_approval_index {
+                if let Some(cmd) = app.pending_commands.get_mut(index) {
+                    cmd.approved = true;
+                }
+            }
+        }
+        KeyCode::Char('n') => {
+            // Reject current command
+            if let Some(index) = app.command_approval_index {
+                if let Some(cmd) = app.pending_commands.get_mut(index) {
+                    cmd.approved = false;
+                }
+            }
+        }
+        KeyCode::Char('a') => {
+            // Approve all commands
+            for cmd in &mut app.pending_commands {
+                cmd.approved = true;
+            }
+        }
+        KeyCode::Char('r') => {
+            // Reject all commands
+            for cmd in &mut app.pending_commands {
+                cmd.approved = false;
+            }
+        }
+        KeyCode::Enter | KeyCode::Char('x') => {
+            // Execute approved commands
+            let approved_commands: Vec<_> = app.pending_commands
+                .iter()
+                .enumerate()
+                .filter(|(_, cmd)| cmd.approved && !cmd.executed)
+                .map(|(i, _)| i)
+                .collect();
+
+            if approved_commands.is_empty() {
+                app.set_status_message("No commands approved for execution".to_string());
+                app.mode = AppMode::Agent;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            } else {
+                // Execute each approved command
+                for index in approved_commands {
+                    if let Some(cmd) = app.pending_commands.get(index) {
+                        let command = cmd.command.clone();
+                        let tx_clone = tx.clone();
+
+                        tokio::spawn(async move {
+                            use crate::agent::Agent;
+                            let result = Agent::execute_command(&command).await;
+                            tx_clone.send(AppEvent::CommandExecuted(index, result)).await.ok();
+                        });
+                    }
+                }
+
+                app.mode = AppMode::Agent;
+                app.pending_commands.clear();
+                app.command_approval_index = None;
+            }
+        }
+        _ => {}
+    }
+    false
+}
+async fn handle_autonomous_mode(key: KeyEvent, app: &mut AppState, tx: mpsc::Sender<AppEvent>) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            // Exit autonomous mode
+            app.mode = AppMode::Normal;
+            app.autonomous_agent = None;
+            app.current_messages_mut().push(models::Message {
+                role: models::Role::Assistant,
+                content: "🛑 Autonomous mode stopped.".to_string(),
+                timestamp: chrono::Utc::now(),
+            });
+        }
+        KeyCode::Enter => {
+            if !app.input.trim().is_empty() && !app.is_loading {
+                let user_goal = app.input.clone();
+                app.input.clear();
+
+                // Set the goal and get reasoning prompt in one scope
+                let reasoning_prompt = if let Some(ref mut agent) = app.autonomous_agent {
+                    agent.set_goal(user_goal.clone());
+                    Some(agent.create_reasoning_prompt())
+                } else {
+                    None
+                };
+
+                if let Some(reasoning_prompt) = reasoning_prompt {
+                    // Add user message
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::User,
+                        content: user_goal,
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    // Add status message
+                    app.current_messages_mut().push(models::Message {
+                        role: models::Role::Assistant,
+                        content: "🔍 Analyzing goal and planning first step...".to_string(),
+                        timestamp: chrono::Utc::now(),
+                    });
+
+                    app.is_loading = true;
+                    app.auto_scroll = true;
+
+                    let client = app.http_client.clone();
+                    let model = app.current_model.clone();
+                    let base_url = app.ollama_base_url.clone();
+                    let auth_config = app.config.auth_method.clone();
+                    let auth_enabled = app.config.auth_enabled;
+
+                    tokio::spawn(async move {
+                        // Simple request without streaming for JSON responses
+                        let messages = vec![models::Message {
+                            role: models::Role::User,
+                            content: reasoning_prompt,
+                            timestamp: chrono::Utc::now(),
+                        }];
+
+                        // Collect the full response
+                        let (temp_tx, mut temp_rx) = mpsc::channel::<AppEvent>(32);
+
+                        let client_clone = client.clone();
+                        tokio::spawn(async move {
+                            ollama::stream_chat_request(
+                                &client_clone,
+                                &base_url,
+                                &model,
+                                &messages,
+                                auth_enabled,
+                                auth_config.as_ref(),
+                                None,  // No system prompt, it's in the message
+                                temp_tx,
+                            )
+                            .await;
+                        });
+
+                        // Collect full response
+                        let mut full_response = String::new();
+                        while let Some(event) = temp_rx.recv().await {
+                            match event {
+                                AppEvent::OllamaChunk(Ok(chunk)) => {
+                                    full_response.push_str(&chunk);
+                                }
+                                AppEvent::OllamaDone => {
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        // Send the reasoning result
+                        tx.send(AppEvent::AutonomousReasoningComplete(Ok(full_response))).await.ok();
+                    });
+                }
+            }
+        }
+        KeyCode::Backspace => {
+            app.input.pop();
+        }
+        KeyCode::Char(c) => {
+            app.input.push(c);
+        }
+        _ => {}
+    }
+    false
+}

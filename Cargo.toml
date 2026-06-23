@@ -17,3 +17,4 @@ futures-util = "0.3.31"
 rusqlite = { version = "0.36.0", features = ["bundled"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 directories = "6.0.0"
+regex = "1.11.1"

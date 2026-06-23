@@ -6,7 +6,7 @@ use reqwest::Client;
 use rusqlite::Connection;
 use textwrap::wrap;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum AppMode {
     Normal,         // Vim normal mode
     Insert,         // Vim insert mode for typing messages
@@ -14,7 +14,9 @@ pub enum AppMode {
     Visual,         // Vim visual mode for text selection
     ModelSelection,
     SessionSelection,
-    Agent,          // New agent mode
+    Agent,          // Agent mode for typing requests
+    AgentApproval,  // Agent approval mode for reviewing commands
+    Autonomous,     // Autonomous agent mode - continuous reasoning loop
     Help,           // Help popup mode
 }
 
@@ -48,8 +50,9 @@ pub struct AppState {
     pub agent_mode: bool,
     pub pending_commands: Vec<models::AgentCommand>,
     pub command_approval_index: Option<usize>,
-    #[allow(dead_code)]
-    pub agent_context: String,
+    pub agent_system_prompt: String,
+    // Autonomous agent
+    pub autonomous_agent: Option<crate::autonomous_agent::AutonomousAgent>,
 }
 
 impl AppState {
@@ -131,7 +134,9 @@ impl AppState {
             agent_mode: false,
             pending_commands: Vec::new(),
             command_approval_index: None,
-            agent_context: String::new(),
+            agent_system_prompt: String::new(),
+            // Initialize autonomous agent
+            autonomous_agent: None,
         })
     }
 
@@ -160,6 +165,7 @@ impl AppState {
         messages.push(models::Message {
             role: models::Role::Assistant,
             content: "History Cleared.".to_string(),
+            timestamp: chrono::Utc::now(),
         });
         self.chat_list_state = ListState::default(); // Reset chat list state
         Ok(())
@@ -363,6 +369,53 @@ impl AppState {
             "a" => {
                 self.mode = AppMode::Agent;
                 self.agent_mode = true;
+                // Generate system prompt with current context
+                let context = crate::agent::Agent::gather_system_context();
+                self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
+            }
+            "an" => {
+                // Agent mode with new/fresh context (no previous messages)
+                // Clear current session messages
+                let messages = self.current_messages_mut();
+                messages.clear();
+                messages.push(models::Message {
+                    role: models::Role::Assistant,
+                    content: "Agent mode started with fresh context. I can suggest shell commands to help you.".to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+
+                // Enter agent mode
+                self.mode = AppMode::Agent;
+                self.agent_mode = true;
+
+                // Generate system prompt with current context
+                let context = crate::agent::Agent::gather_system_context();
+                self.agent_system_prompt = crate::agent::Agent::create_agent_system_prompt(&context);
+
+                // Reset chat UI state
+                self.chat_list_state = ListState::default();
+                self.auto_scroll = true;
+            }
+            "auto" => {
+                // Autonomous agent mode - continuous reasoning loop
+                let messages = self.current_messages_mut();
+                messages.clear();
+                messages.push(models::Message {
+                    role: models::Role::Assistant,
+                    content: "🤖 Autonomous Agent Mode activated!\n\nI will work continuously to achieve your goal through:\n1. Reasoning about the task\n2. Executing commands\n3. Analyzing outputs\n4. Deciding next steps\n5. Repeating until goal is achieved\n\nTell me your goal, and I'll work autonomously to accomplish it.".to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+
+                // Initialize autonomous agent
+                self.autonomous_agent = Some(crate::autonomous_agent::AutonomousAgent::new());
+
+                // Enter autonomous mode
+                self.mode = AppMode::Autonomous;
+                self.agent_mode = false;  // Disable regular agent mode
+
+                // Reset UI state
+                self.chat_list_state = ListState::default();
+                self.auto_scroll = true;
             }
             "h" | "?" => {
                 self.mode = AppMode::Help;
